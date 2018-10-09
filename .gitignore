@@ -1,0 +1,6 @@
+smime/*
+.idea
+*.eml
+*.crt
+*.p12
+*.pem
