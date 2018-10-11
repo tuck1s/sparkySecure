@@ -4,3 +4,4 @@ smime/*
 *.crt
 *.p12
 *.pem
+randpool.dat
