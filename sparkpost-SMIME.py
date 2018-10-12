@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 
-import email, os, time, argparse
+import email, os, time, argparse, smime, subprocess
 from sparkpost import SparkPost
 from sparkpost.exceptions import SparkPostAPIException
 from email.utils import parseaddr
-import smime
-import subprocess
+
 from email.mime.text import MIMEText
 from tempfile import NamedTemporaryFile
-import os
 
 def getConfig():
     """read SparkPost sending config from env vars."""
@@ -28,7 +26,7 @@ def getConfig():
             exit(1)
     return cfg
 
-#TODO: may not be necessary
+
 def gatherAllRecips(msg):
     """ Gather all recipients from the message into array of dicts ready for SparkPost API
     See https://support.sparkpost.com/customer/portal/articles/2432290-using-cc-and-bcc-with-the-rest-api """
@@ -47,8 +45,13 @@ def gatherAllRecips(msg):
 
 def signEmailFrom(msg, fromAddr):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
-    Returns signed mail string, multipart/signed; protocol="application/x-pkcs7-signature" format, which includes a
-    Content-Type: application/x-pkcs7-signature; name="smime.p7s" attachment
+    Returns signed mail string, in format
+        Content-Type: application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"
+        Content-Disposition: attachment; filename="smime.p7m"
+        Content-Transfer-Encoding: base64
+    See RFC5751 section 3.4
+    The reason for choosing this format, rather than multipart/signed, is that it prevents the delivery service
+    from applying open/link tracking or other manipulations on the body.
     """
     eml = msg.as_bytes()
     with NamedTemporaryFile('wb') as tmpFile:
@@ -57,7 +60,7 @@ def signEmailFrom(msg, fromAddr):
         pubCertFile = fromAddr + '.crt'
         privkeyFile = fromAddr + '.pem'
         if os.path.isfile(pubCertFile) and os.path.isfile(privkeyFile):
-            myout = subprocess.run(['openssl', 'smime', '-in', tmpFile.name, '-sign', '-signer', pubCertFile, '-inkey', privkeyFile, '-md','sha256'], capture_output=True)
+            myout = subprocess.run(['openssl', 'smime', '-in', tmpFile.name, '-sign', '-signer', pubCertFile, '-inkey', privkeyFile, '-md','sha256', '-nodetach'], capture_output=True)
             if myout.returncode == 0:
                 sout = myout.stdout.decode('utf8')
                 return sout
@@ -67,13 +70,9 @@ def signEmailFrom(msg, fromAddr):
             print('Unable to open public and private key files for fromAddr', fromAddr)
             return None
 
-def copyHeaders(e1, e2):
-    """ Copy needed headers across from message e1 to e2 """
-    for h in ['From', 'To', 'Cc', 'Subject']:
-        if h in e1:
-            e2[h] = e1[h]
 
 def fixTextPlainParts(msg):
+    """ Fix up any text parts into base64 encoding, otherwise block cipher e.g. AES is unhappy """
     if msg.is_multipart():
         parts = msg.get_payload()
         for i in range(len(parts)):
@@ -81,18 +80,22 @@ def fixTextPlainParts(msg):
             msg._payload[i] = q
         return msg
     elif msg.get_content_type() == 'text/plain':
-        # Ensure any text parts are put into base64, otherwise block cipher e.g. AES is unhappy
         txt = msg.get_payload()
         m = MIMEText(txt, _charset='utf-8')
         return m
     else:
         return msg
 
+
 def copyPayload(m1, m2):
     """ Replace the message payload (and MIME headers) in m2 with the contents of m1 """
     m2._payload = m1._payload
     for i in m1.items():
-        m2.replace_header(i[0], i[1])
+        if m2.get(i[0]):
+            m2.replace_header(i[0], i[1])
+        else:
+            m2.add_header(i[0], i[1])
+
 
 def sendEml(sp, emlfile, encrypt=False, sign=False):
     """ Inject into a SparkPost endpoint, given a message file in RFC822 .eml format and recipient public key. """
@@ -122,14 +125,9 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
         else:
             s = msgIn.as_string()
 
-        # TODO: debug code, remove when done
-        with open('debug3.eml', 'w') as f:
-            f.write(s)
-            f.close()
-
         # Prevent SparkPost from wrapping links and inserting tracking pixels into content that is signed but unencrypted
-        # because this will change the plain message content and fail validation. Also set "transactional" flag in this case
-        # to suppress the List-Unsubscribe header
+        # because this will change the plain message content and fail validation.
+        # Also set "transactional" flag to suppress the List-Unsubscribe header.
         canTrack = not (sign and not encrypt)
         sendObj = {
             'campaign': 'sparkpost-SMIME',
@@ -169,10 +167,7 @@ cfg = getConfig()
 if os.path.isfile(args.emlfile):
     sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
     print('Opened connection to', sp.base_uri)
-    for fname in ['simple-text-HTML.eml']:      # 'declaration.eml', 'img_and_attachment.eml'
-        for enc in [False]:                      # False
-            for sign in [True]:
-                sendEml(sp, fname, encrypt=enc, sign=sign)
+    sendEml(sp, args.emlfile, encrypt=args.encrypt, sign=args.sign)
 else:
     print('Unable to open file', args.emlfile)
     exit(1)
