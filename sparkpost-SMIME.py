@@ -9,6 +9,7 @@ import smime
 import subprocess
 from email.mime.text import MIMEText
 from tempfile import NamedTemporaryFile
+import os
 
 def getConfig():
     """read SparkPost sending config from env vars."""
@@ -46,7 +47,9 @@ def gatherAllRecips(msg):
 
 def signEmailFrom(msg, fromAddr):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
-    Returns signed mail string """
+    Returns signed mail string, multipart/signed; protocol="application/x-pkcs7-signature" format, which includes a
+    Content-Type: application/x-pkcs7-signature; name="smime.p7s" attachment
+    """
     eml = msg.as_bytes()
     with NamedTemporaryFile('wb') as tmpFile:
         tmpFile.file.write(eml)
@@ -58,8 +61,6 @@ def signEmailFrom(msg, fromAddr):
             if myout.returncode == 0:
                 sout = myout.stdout.decode('utf8')
                 return sout
-                #signedMessage = email.message_from_string(sout)
-                #return signedMessage
             else:
                 return None
         else:
@@ -126,10 +127,15 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
             f.write(s)
             f.close()
 
+        # Prevent SparkPost from wrapping links and inserting tracking pixels into content that is signed but unencrypted
+        # because this will change the plain message content and fail validation. Also set "transactional" flag in this case
+        # to suppress the List-Unsubscribe header
+        canTrack = not (sign and not encrypt)
         sendObj = {
             'campaign': 'sparkpost-SMIME',
-            'track_opens': True,
-            'track_clicks': True,
+            'track_opens': canTrack,
+            'track_clicks': canTrack,
+            'transactional': True,
             'email_rfc822': s,
             'recipients': allRecips
         }
@@ -163,8 +169,8 @@ cfg = getConfig()
 if os.path.isfile(args.emlfile):
     sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
     print('Opened connection to', sp.base_uri)
-    for fname in ['declaration.eml', 'img_and_attachment.eml']:
-        for enc in [True]:                      # False
+    for fname in ['simple-text-HTML.eml']:      # 'declaration.eml', 'img_and_attachment.eml'
+        for enc in [False]:                      # False
             for sign in [True]:
                 sendEml(sp, fname, encrypt=enc, sign=sign)
 else:
