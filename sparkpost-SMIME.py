@@ -104,15 +104,12 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
         allRecips = gatherAllRecips(msgIn)
         _, fromAddr = parseaddr(msgIn.get('From'))
         _, toAddr = parseaddr(msgIn.get('To'))
-
+        print('Sending: {}\tFrom: {}\tTo: {}\t'.format(emlfile, fromAddr, toAddr), end='')
         copyPayload(fixTextPlainParts(msgIn), msgIn)
 
         # Sign the message
         if sign:
             signedPayload = signEmailFrom(msgIn, fromAddr)
-            with open('debug2.eml', 'w') as f:
-                f.write(signedPayload)
-                f.close()
             signedMessage = email.message_from_string(signedPayload)
             copyPayload(signedMessage, msgIn)
 
@@ -125,10 +122,9 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
         else:
             s = msgIn.as_string()
 
-        # Prevent SparkPost from wrapping links and inserting tracking pixels into content that is signed but unencrypted
-        # because this will change the plain message content and fail validation.
+        # Prevent SparkPost from wrapping links and inserting tracking pixels, if signed or encrypted.
         # Also set "transactional" flag to suppress the List-Unsubscribe header.
-        canTrack = not (sign and not encrypt)
+        canTrack = not (sign or encrypt)
         sendObj = {
             'campaign': 'sparkpost-SMIME',
             'track_opens': canTrack,
@@ -154,6 +150,13 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
             return 0, errMsg
 
 
+def testCases(sp):
+    """ Test code only """
+    for fname in os.listdir('testcases'):
+        for enc in [False, True]:
+            for sign in [False, True]:
+                sendEml(sp, os.path.join('testcases',fname), encrypt=enc, sign=sign)
+
 # -----------------------------------------------------------------------------------------
 # Main code
 # -----------------------------------------------------------------------------------------
@@ -167,6 +170,7 @@ cfg = getConfig()
 if os.path.isfile(args.emlfile):
     sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
     print('Opened connection to', sp.base_uri)
+    #testCases(sp)               # Used for internal testing
     sendEml(sp, args.emlfile, encrypt=args.encrypt, sign=args.sign)
 else:
     print('Unable to open file', args.emlfile)
