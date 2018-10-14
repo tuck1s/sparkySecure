@@ -1,8 +1,8 @@
 Tools to apply S/MIME encryption and signing, for sending messages through SparkPost.
 
 ```
-$ ./sparkpost-SMIME.py -h
-usage: sparkpost-SMIME.py [-h] [--encrypt] [--sign] emlfile
+$ ./sparkpostSMIME.py -h
+usage: sparkpostSMIME.py [-h] [--encrypt] [--sign] emlfile
 
 Send an email file via SparkPost with optional S/MIME encryption and signing.
 

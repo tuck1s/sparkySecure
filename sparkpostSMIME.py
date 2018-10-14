@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import print_function
 
-import email, os, time, argparse, smime, subprocess
+import email, os, time, argparse, smime, base64
 from sparkpost import SparkPost
 from sparkpost.exceptions import SparkPostAPIException
 from email.utils import parseaddr
-
 from email.mime.text import MIMEText
-from tempfile import NamedTemporaryFile
+from OpenSSL import crypto
 
 def getConfig():
     """read SparkPost sending config from env vars."""
@@ -43,9 +42,39 @@ def gatherAllRecips(msg):
     return allRecips
 
 
+PKCS7_NOSIGS = 0x4  # defined in pkcs7.h
+def create_embedded_pkcs7_signature(data, cert, key):
+    """
+    Creates an embedded ("nodetached") pkcs7 signature.
+    This is equivalent to the output of openssl smime -sign -signer cert -inkey key -outform DER -nodetach < data
+    :type data: bytes
+    :type cert: str
+    :type key: str
+    Thanks to: https://stackoverflow.com/a/47098879/8545455
+    """
+    assert isinstance(data, bytes)
+    assert isinstance(cert, str)
+
+    try:
+        pkey = crypto.load_privatekey(crypto.FILETYPE_PEM, key)
+        signcert = crypto.load_certificate(crypto.FILETYPE_PEM, cert)
+    except crypto.Error as e:
+        raise ValueError('Certificates files are invalid') from e
+
+    bio_in = crypto._new_mem_buf(data)
+    pkcs7 = crypto._lib.PKCS7_sign(
+        signcert._x509, pkey._pkey, crypto._ffi.NULL, bio_in, PKCS7_NOSIGS
+    )
+    bio_out = crypto._new_mem_buf()
+    crypto._lib.i2d_PKCS7_bio(bio_out, pkcs7)
+    signed_data = crypto._bio_to_string(bio_out)
+
+    return signed_data
+
+
 def signEmailFrom(msg, fromAddr):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
-    Returns signed mail string, in format
+    Returns signed message object, in format
         Content-Type: application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"
         Content-Disposition: attachment; filename="smime.p7m"
         Content-Transfer-Encoding: base64
@@ -53,22 +82,30 @@ def signEmailFrom(msg, fromAddr):
     The reason for choosing this format, rather than multipart/signed, is that it prevents the delivery service
     from applying open/link tracking or other manipulations on the body.
     """
-    eml = msg.as_bytes()
-    with NamedTemporaryFile('wb') as tmpFile:
-        tmpFile.file.write(eml)
-        tmpFile.file.close()
-        pubCertFile = fromAddr + '.crt'
-        privkeyFile = fromAddr + '.pem'
-        if os.path.isfile(pubCertFile) and os.path.isfile(privkeyFile):
-            myout = subprocess.run(['openssl', 'smime', '-in', tmpFile.name, '-sign', '-signer', pubCertFile, '-inkey', privkeyFile, '-md','sha256', '-nodetach'], capture_output=True)
-            if myout.returncode == 0:
-                sout = myout.stdout.decode('utf8')
-                return sout
-            else:
-                return None
-        else:
-            print('Unable to open public and private key files for fromAddr', fromAddr)
-            return None
+    pubCertFile = fromAddr + '.crt'
+    privkeyFile = fromAddr + '.pem'
+    if os.path.isfile(pubCertFile) and os.path.isfile(privkeyFile):
+        with open(pubCertFile) as cert_fp:
+            cert = cert_fp.read()
+            with open(privkeyFile) as key_fp:
+                key = key_fp.read()
+                rawMsg = msg.as_bytes()
+                sgn = create_embedded_pkcs7_signature(rawMsg, cert, key)
+                msg.set_payload(base64.encodebytes(sgn))
+                hdrList = [
+                    ('Content-Type', 'application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"'),
+                    ('Content-Transfer-Encoding', 'base64'),
+                    ('Content-Disposition', 'attachment; filename="smime.p7m"')
+                ]
+                for i in hdrList:
+                    if msg.get(i[0]):
+                        msg.replace_header(i[0], i[1])
+                    else:
+                        msg.add_header(i[0], i[1])
+                return msg
+    else:
+        print('Unable to open public and private key files for fromAddr', fromAddr)
+        return None
 
 
 def fixTextPlainParts(msg):
@@ -104,14 +141,12 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
         allRecips = gatherAllRecips(msgIn)
         _, fromAddr = parseaddr(msgIn.get('From'))
         _, toAddr = parseaddr(msgIn.get('To'))
-        print('Sending: {}\tFrom: {}\tTo: {}\t'.format(emlfile, fromAddr, toAddr), end='')
+        print('Sending {}\tFrom: {}\tTo: {}\t'.format(emlfile, fromAddr, toAddr), end='')
         copyPayload(fixTextPlainParts(msgIn), msgIn)
 
         # Sign the message
         if sign:
-            signedPayload = signEmailFrom(msgIn, fromAddr)
-            signedMessage = email.message_from_string(signedPayload)
-            copyPayload(signedMessage, msgIn)
+            msgIn = signEmailFrom(msgIn, fromAddr)
 
         # Encrypt the message, returning as a string
         if encrypt:
@@ -121,6 +156,11 @@ def sendEml(sp, emlfile, encrypt=False, sign=False):
                 s = smime.encrypt(msgIn, rcptPem)
         else:
             s = msgIn.as_string()
+
+        # debug code for output of mail to a file
+        #with open('debug.eml', 'w') as f:
+        #    f.write(s)
+        #    f.close()
 
         # Prevent SparkPost from wrapping links and inserting tracking pixels, if signed or encrypted.
         # Also set "transactional" flag to suppress the List-Unsubscribe header.
@@ -160,18 +200,19 @@ def testCases(sp):
 # -----------------------------------------------------------------------------------------
 # Main code
 # -----------------------------------------------------------------------------------------
-parser = argparse.ArgumentParser(description='Send an email file via SparkPost with optional S/MIME encryption and signing.')
-parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
-parser.add_argument('--encrypt', action='store_true', help='Encrypt with a recipient certificate containing public key. Requires file.crt where file matches To: address.')
-parser.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
-args = parser.parse_args()
-cfg = getConfig()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Send an email file via SparkPost with optional S/MIME encryption and signing.')
+    parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
+    parser.add_argument('--encrypt', action='store_true', help='Encrypt with a recipient certificate containing public key. Requires file.crt where file matches To: address.')
+    parser.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
+    args = parser.parse_args()
+    cfg = getConfig()
 
-if os.path.isfile(args.emlfile):
-    sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
-    print('Opened connection to', sp.base_uri)
-    #testCases(sp)               # Used for internal testing
-    sendEml(sp, args.emlfile, encrypt=args.encrypt, sign=args.sign)
-else:
-    print('Unable to open file', args.emlfile)
-    exit(1)
+    if os.path.isfile(args.emlfile):
+        sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
+        print('Opened connection to', sp.base_uri)
+        #testCases(sp)               # Used for internal testing
+        sendEml(sp, args.emlfile, encrypt=args.encrypt, sign=args.sign)
+    else:
+        print('Unable to open file', args.emlfile)
+        exit(1)
