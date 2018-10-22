@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-
 import email, os, time, argparse, smime, base64
 from sparkpost import SparkPost
 from sparkpost.exceptions import SparkPostAPIException
@@ -62,15 +61,12 @@ def create_embedded_pkcs7_signature(data, cert, key):
         raise ValueError('Certificates files are invalid') from e
 
     bio_in = crypto._new_mem_buf(data)
-    pkcs7 = crypto._lib.PKCS7_sign(
-        signcert._x509, pkey._pkey, crypto._ffi.NULL, bio_in, PKCS7_NOSIGS
-    )
+    pkcs7 = crypto._lib.PKCS7_sign(signcert._x509, pkey._pkey, crypto._ffi.NULL, bio_in, PKCS7_NOSIGS)
     bio_out = crypto._new_mem_buf()
     crypto._lib.i2d_PKCS7_bio(bio_out, pkcs7)
     signed_data = crypto._bio_to_string(bio_out)
 
     return signed_data
-
 
 def signEmailFrom(msg, fromAddr):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
