@@ -90,3 +90,30 @@ Content-Language en-GB
 ```
 
 # Installing
+
+Here's a basic installation sequence, starting from fresh Amazon Linux, using a Python virtual environment.
+
+```
+sudo yum install -y python36
+sudo yum install -y git
+
+# Create local environment
+sudo -E /usr/bin/pip-3.6 install --upgrade pip
+sudo -E /usr/bin/pip-3.6 install pipenv
+pipenv shell
+
+# install dependencies
+pip install pyOpenSSL cryptography asn1crypto
+
+# install specific versions of these libs
+pip install git+https://github.com/tuck1s/python-smime.git
+pip install git+https://github.com/tuck1s/python-sparkpost.git
+
+# install project
+git clone https://github.com/tuck1s/sparkySecure.git
+
+cd sparkySecure/
+export SPARKPOST_API_KEY=<<<YOUR API KEY HERE>>>
+```
+
+Then create your keys and send .eml files as above.

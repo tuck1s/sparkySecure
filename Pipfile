@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyopenssl = "*"
+cryptography = "*"
+"asn1crypto" = "*"
+python-smime = {git = "https://github.com/tuck1s/python-smime.git"}
+python-sparkpost = {git = "https://github.com/tuck1s/python-sparkpost"}
+
+[dev-packages]
+
+[requires]
+python_version = "3.7"
