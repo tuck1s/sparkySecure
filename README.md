@@ -2,7 +2,9 @@
 
 [Sign up](https://app.sparkpost.com/join?plan=free-0817?src=Social%20Media&sfdcid=70160000000pqBb&pc=GitHubSignUp&utm_source=github&utm_medium=social-media&utm_campaign=github&utm_content=sign-up) for a SparkPost account and visit our [Developer Hub](https://developers.sparkpost.com) for even more content.
 
+
 # sparkpostSMIME
+[![Build Status](https://travis-ci.org/tuck1s/sparkySecure.svg?branch=master)](https://travis-ci.org/tuck1s/sparkySecure)
 
 Send an email file via SparkPost with optional S/MIME encryption and signing.
 
