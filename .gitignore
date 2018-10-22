@@ -1,4 +1,5 @@
 smime/*
+venv/*
 .idea
 *.eml
 *.crt
