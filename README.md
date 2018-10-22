@@ -91,13 +91,14 @@ Content-Language en-GB
 
 # Installing
 
-Here's a basic installation sequence, starting from fresh Amazon Linux, using a Python virtual environment.
+Here's a basic installation sequence, starting from fresh Amazon Linux, using the dependencies
+declared in the included `Pipfile` to create a Python virtual environment.
 
 ```
 sudo yum install -y python36
 sudo yum install -y git
 
-# Create local environment
+# Create environment
 sudo -E /usr/bin/pip-3.6 install --upgrade pip
 sudo -E /usr/bin/pip-3.6 install pipenv
 
@@ -106,8 +107,8 @@ git clone https://github.com/tuck1s/sparkySecure.git
 
 cd sparkySecure
 # install dependencies into env, including some specific lib versions
-pipenv shell
 pipenv --python 3.6 install
+pipenv shell
 
 export SPARKPOST_API_KEY=<<<YOUR API KEY HERE>>>
 ```
