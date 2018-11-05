@@ -8,9 +8,9 @@ pyopenssl = "*"
 cryptography = "*"
 "asn1crypto" = "*"
 python-smime = {git = "https://github.com/tuck1s/python-smime.git"}
-python-sparkpost = {git = "https://github.com/tuck1s/python-sparkpost"}
+sparkpost = "*"
+coveralls = "*"
+pytest = "*"
 
 [dev-packages]
-
-[requires]
-python_version = "3.6"
+coveralls = "*"

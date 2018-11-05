@@ -1,14 +1,21 @@
 language: python
 python:
+  - "3.4"
+  - "3.5"
   - "3.6"
+  - "3.7"
+
 # command to install dependencies
 install:
   - pip install pipenv
-  - pipenv install
+  - pipenv install --dev
+
 services:
 script:
-  - pipenv run ./sparkpostSMIME.py -h
-  - pipenv run ./mimeshow.py -h
+  - pipenv shell
+  - ./sparkpostSMIME.py -h
+  - ./mimeshow.py -h
+  - py.test
 
 branches:
   only:

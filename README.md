@@ -97,22 +97,29 @@ Here's a basic installation sequence, starting from fresh Amazon Linux, using th
 declared in the included `Pipfile` to create a Python virtual environment.
 
 ```
-sudo yum install -y python36
-sudo yum install -y git
+# First, get the Python interpreter and git cli tool. Doesn't have to be version 3.6 specifically,
+# that's just what Amazon Linux requires.
+sudo yum install -y python36 git
 
-# Create environment
-sudo -E /usr/bin/pip-3.6 install --upgrade pip
-sudo -E /usr/bin/pip-3.6 install pipenv
+# Create environment. Note your pip command names and options may vary depending on OS.
+# The following is for Amazon Linux.
+# Your OS may name this tool pip3 rather than using a version-specific name.
+/usr/bin/pip-3.6 install --user pipenv
 
-# install project
+# Install project
 git clone https://github.com/tuck1s/sparkySecure.git
-
 cd sparkySecure
-# install dependencies into env, including some specific lib versions
+
+# Install dependencies into virtualenv, including some specific lib versions.
+# Virtual environments take away tool version / paths pain, once you have one.
 pipenv --python 3.6 install
 pipenv shell
 
+# Now inside our virtual env
 export SPARKPOST_API_KEY=<<<YOUR API KEY HERE>>>
+
+# If the following gives you help text, then you're good.
+./sparkpostSMIME.py -h
 ```
 
 Then create your keys and send .eml files as above.
