@@ -12,12 +12,10 @@ install:
 
 services:
 script:
-  - pipenv shell
-# check command-line invocations for help text work
-  - ./sparkpostSMIME.py -h
-  - ./mimeshow.py -h
+  - pipenv run ./sparkpostSMIME.py -h
+  - pipenv run ./mimeshow.py -h
 # internal test cases
-  - py.test
+  - pipenv run py.test
 
 branches:
   only:
