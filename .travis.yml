@@ -3,7 +3,7 @@ python:
   - "3.4"
   - "3.5"
   - "3.6"
-  - "3.7"
+# "3.7" not yet available in travis
 
 # command to install dependencies
 install:
@@ -13,8 +13,10 @@ install:
 services:
 script:
   - pipenv shell
+# check command-line invocations for help text work
   - ./sparkpostSMIME.py -h
   - ./mimeshow.py -h
+# internal test cases
   - py.test
 
 branches:
