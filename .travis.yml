@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.4"
+# "3.4" giving pathlib error with pytest: ImportError: No module named 'pathlib2'
   - "3.5"
   - "3.6"
 # "3.7" not yet available in travis
