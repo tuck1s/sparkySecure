@@ -15,7 +15,7 @@ script:
   - pipenv run ./sparkpostSMIME.py -h
   - pipenv run ./mimeshow.py -h
 # internal test cases
-  - pipenv run py.test
+  - pipenv run python -m pytest
 
 branches:
   only:
