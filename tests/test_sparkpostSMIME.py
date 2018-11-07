@@ -1,17 +1,13 @@
 # test sparkpostSMIME functions
 
-import email
-from sparkpostSMIME import buildSMIMEemail, sendSparkPost
+import email, os
+from sparkpostSMIME import buildSMIMEemail
 
-example_email1 = '''To: Bob <bob@example.com>
-From: Alice <alice@example.com>
-Subject: A message
-MIME-Version: 1.0
-Content-Type: text/plain; charset=utf-8; format=flowed
-Content-Transfer-Encoding: 7bit\nContent-Language: en-GB
+def example_mail():
+    fname = 'example_email1.eml'
+    with open(fname, 'r') as f:
+        return email.message_from_file(f)
 
-When in the Course of human events we send an email
-'''
 
 def delivery_headers_match(m1, m2):
     for i in ['To', 'From', 'Subject', 'MIME-Version']:
@@ -21,30 +17,39 @@ def delivery_headers_match(m1, m2):
 
 
 def test_plain_unsigned():
-    msgIn = email.message_from_string(example_email1)
+    msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=False)
     assert delivery_headers_match(msgIn, msgOut)
 
-"""
+
 def test_plain_signed():
-    msgIn = email.message_from_string(example_email1)
+    msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=True)
     assert delivery_headers_match(msgIn, msgOut)
+    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
+    assert msgOut.get_content_disposition() == 'attachment'
+    assert msgOut.get_filename() == 'smime.p7m'
 
 
 def test_encrypted_unsigned():
-    msgIn = email.message_from_string(example_email1)
+    msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=False)
     assert delivery_headers_match(msgIn, msgOut)
+    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
+    assert msgOut.get_content_disposition() == 'attachment'
+    assert msgOut.get_filename() == 'smime.p7m'
 
 
 def test_encrypted_signed():
-    msgIn = email.message_from_string(example_email1)
+    msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=True)
     assert delivery_headers_match(msgIn, msgOut)
-"""
+    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
+    assert msgOut.get_content_disposition() == 'attachment'
+    assert msgOut.get_filename() == 'smime.p7m'
 
-# Stub test code when running directly rather than via py.test
+
+# Stub test code when running directly rather than via pytest
 if __name__ == "__main__":
     test_plain_unsigned()
     test_plain_signed()

@@ -12,7 +12,7 @@ Send an email file via SparkPost with optional S/MIME encryption and signing.
 
 ## Usage
 ```
-$  ./sparkpostSMIME.py -h
+$ ./sparkpostSMIME.py -h
 usage: sparkpostSMIME.py [-h] [--encrypt] [--sign] [--send_api] emlfile
 
 Send an email file via SparkPost with optional S/MIME encryption and signing.
@@ -27,7 +27,8 @@ optional arguments:
   --sign      Sign with a sender key. Requires file.crt containing public key,
               and file.pem containing private key, where file matches From:
               address.
-  --send_api  Send via SparkPost API (using env var SPARKPOST_API_KEY).
+  --send_api  Send via SparkPost API, using env var SPARKPOST_API_KEY and
+              optional SPARKPOST_HOST.
 ```
 
 When sending an .eml file from sender@example.com to recip@gmail.com, the following key files are required:
@@ -39,7 +40,7 @@ When sending an .eml file from sender@example.com to recip@gmail.com, the follow
 |`sender@example.com.pem`|Sender's private key required for *signing*|
 
 ### Default text output
-If the `--send_api` option is absent, RFC822 output text is written to the console.
+If the `--send_api` option is absent, the email wil lbe written to the console as RFC822 format text.
 ```
 $ ./sparkpostSMIME.py testcases/img_and_attachment.eml --sign --encrypt
 To: Bob <bob.lumreeker@gmail.com>
@@ -62,14 +63,16 @@ If `--send_api` option is present, environment variables are used to send the em
 
 |Variable|Meaning|
 |---|---|
-|`SPARKPOST_API_KEY`|Required|
-|`SPARKPOST_HOST`|For EU customers set to `https://api.eu.sparkpost.com`. Enterprise customers set to own specific host address|
+|`SPARKPOST_API_KEY`|Required.|
+|`SPARKPOST_HOST`|Optional - see [endpoints](https://developers.sparkpost.com/api/#header-endpoints).<br>For SparkPost EU, set this to `api.eu.sparkpost.com`.<br>Enterprise customers, please use your specific host address.|
 
 Example:
 ```
+$ export SPARKPOST_API_KEY=<<Your API key here>>
 $ ./sparkpostSMIME.py testcases/img_and_attachment.eml --sign --encrypt --send_api
+
 Opened connection to https://api.sparkpost.com/api/v1
-OK - in 3.921 seconds
+Sending testcases/img_and_attachment.eml	From: Steve <steve@thetucks.com>	To: Bob <bob.lumreeker@gmail.com> OK - in 3.285 seconds
 ```
 
 # mimeshow

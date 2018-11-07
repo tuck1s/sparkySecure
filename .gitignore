@@ -1,8 +1,8 @@
 smime/*
 venv/*
 .idea
-*.eml
-*.crt
-*.p12
-*.pem
+./*.eml
+./*.crt
+./*.p12
+./*.pem
 randpool.dat

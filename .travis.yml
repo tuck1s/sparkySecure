@@ -3,7 +3,7 @@ python:
 # "3.4" giving pathlib error with pytest: ImportError: No module named 'pathlib2'
   - "3.5"
   - "3.6"
-# "3.7" not yet available in travis
+# "3.7" not yet available in travis ci env
 
 # command to install dependencies
 install:
@@ -14,7 +14,7 @@ services:
 script:
   - pipenv run ./sparkpostSMIME.py -h
   - pipenv run ./mimeshow.py -h
-# internal test cases
+# internal test cases. Invoke pytest including access to current project dir
   - pipenv run python -m pytest
 
 branches:
