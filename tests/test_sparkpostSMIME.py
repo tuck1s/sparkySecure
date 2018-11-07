@@ -4,7 +4,9 @@ import email, os
 from sparkpostSMIME import buildSMIMEemail
 
 def example_mail():
-    fname = 'example_email1.eml'
+    # look for example email file in same dir as this script
+    testdir = os.path.dirname(os.path.abspath(__file__))
+    fname = os.path.join(testdir, 'example_email1.eml')
     with open(fname, 'r') as f:
         return email.message_from_file(f)
 
@@ -14,6 +16,13 @@ def delivery_headers_match(m1, m2):
         if m1.get(i) != m2.get(i):
             return False
     return True
+
+
+def content_headers_are_smime(msgOut):
+    # also allow 'x-pkcs7-mime'
+    return 'pkcs7-mime' in msgOut.get_content_type() and \
+        msgOut.get_content_disposition() == 'attachment' and \
+        msgOut.get_filename() == 'smime.p7m'
 
 
 def test_plain_unsigned():
@@ -26,27 +35,21 @@ def test_plain_signed():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=True)
     assert delivery_headers_match(msgIn, msgOut)
-    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
-    assert msgOut.get_content_disposition() == 'attachment'
-    assert msgOut.get_filename() == 'smime.p7m'
+    assert content_headers_are_smime(msgOut)
 
 
 def test_encrypted_unsigned():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=False)
     assert delivery_headers_match(msgIn, msgOut)
-    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
-    assert msgOut.get_content_disposition() == 'attachment'
-    assert msgOut.get_filename() == 'smime.p7m'
+    assert content_headers_are_smime(msgOut)
 
 
 def test_encrypted_signed():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=True)
     assert delivery_headers_match(msgIn, msgOut)
-    assert 'pkcs7-mime' in msgOut.get_content_type()            # also allow 'x-pkcs7-mime'
-    assert msgOut.get_content_disposition() == 'attachment'
-    assert msgOut.get_filename() == 'smime.p7m'
+    assert content_headers_are_smime(msgOut)
 
 
 # Stub test code when running directly rather than via pytest
