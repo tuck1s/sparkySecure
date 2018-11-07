@@ -1,0 +1,8 @@
+To: Bob <bob@example.com>
+From: Alice <alice@example.com>
+Subject: A message
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8; format=flowed
+Content-Transfer-Encoding: 7bit\nContent-Language: en-GB
+
+When in the Course of human events we send an email
