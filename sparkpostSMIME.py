@@ -177,6 +177,8 @@ def buildSMIMEemail(msg, encrypt=False, sign=False):
         with open(rcptFile, 'rb') as crtFile:
             rcptPem = crtFile.read()
             msg2 = smime.encrypt(msg2, rcptPem)
+
+    # could be valid message or None if an operation failed
     return msg2
 
 
@@ -230,6 +232,9 @@ if __name__ == "__main__":
     if os.path.isfile(args.emlfile):
         with open(args.emlfile) as fp:
             msgOut = buildSMIMEemail(email.message_from_file(fp), encrypt=args.encrypt, sign=args.sign)
+            if msgOut == None:
+                print('Error building S/MIME file - stopping')
+                exit(1)
             if args.send_api:
                 cfg = getConfig()
                 sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
@@ -243,7 +248,7 @@ if __name__ == "__main__":
                     # See https://docs.python.org/3/library/signal.html#note-on-sigpipe
                     devnull = os.open(os.devnull, os.O_WRONLY)
                     os.dup2(devnull, sys.stdout.fileno())
-                    sys.exit(1)  # Python exits with error code 1 on EPIPE
+                    exit(1)         # Python exits with error code 1 on EPIPE
     else:
         print('Unable to open file', args.emlfile)
         exit(1)

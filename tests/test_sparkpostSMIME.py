@@ -28,12 +28,14 @@ def content_headers_are_smime(msgOut):
 def test_plain_unsigned():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=False)
+    assert msgOut is not None
     assert delivery_headers_match(msgIn, msgOut)
 
 
 def test_plain_signed():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=True)
+    assert msgOut is not None
     assert delivery_headers_match(msgIn, msgOut)
     assert content_headers_are_smime(msgOut)
 
@@ -41,6 +43,7 @@ def test_plain_signed():
 def test_encrypted_unsigned():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=False)
+    assert msgOut is not None
     assert delivery_headers_match(msgIn, msgOut)
     assert content_headers_are_smime(msgOut)
 
@@ -48,6 +51,7 @@ def test_encrypted_unsigned():
 def test_encrypted_signed():
     msgIn = example_mail()
     msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=True)
+    assert msgOut is not None
     assert delivery_headers_match(msgIn, msgOut)
     assert content_headers_are_smime(msgOut)
 

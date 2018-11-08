@@ -10,12 +10,16 @@ install:
   - pip install pipenv
   - pipenv install --dev
 
-services:
+
+before_script:
+  # ensure that main module is available for import during tests
+  - export PYTHONPATH=$PYTHONPATH:$(pwd)
+
 script:
-  - pipenv run ./sparkpostSMIME.py -h
-  - pipenv run ./mimeshow.py -h
-# internal test cases. Invoke pytest including access to current project dir
-  - pipenv run python -m pytest
+  - ./sparkpostSMIME.py -h
+  - ./mimeshow.py -h
+  # internal test cases. Invoke pytest where it can find the cert files
+  - cd tests; pytest
 
 branches:
   only:
