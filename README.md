@@ -80,14 +80,14 @@ Display internal header and MIME structure of a mail file in RFC822 format, inde
 
 ## Usage 
 ```
-$ ./mimeshow.py -h
-usage: mimeshow.py [-h] file
+usage: mimeshow.py [-h] [file]
 
 Display internal header and MIME structure of a mail file in RFC822 format,
 indented for ease of reading
 
 positional arguments:
-  file        filename to read
+  file        filename to read. If file is absent, reads from the standard
+              input (acts as a filter).
 
 optional arguments:
   -h, --help  show this help message and exit
@@ -115,6 +115,20 @@ Content-Language en-GB
   Content-Transfer-Encoding base64
   Content-Disposition attachment; filename="sparkpost-datasheet-tam-technical-account-management.pdf"
  
+```
+
+Example use as a filter to give a human-readable summary of `sparkpostSMIME` output:
+
+```
+$ ./sparkpostSMIME.py tests/declaration.eml --sign --encrypt | ./mimeshow.py 
+To Bob <bob.lumreeker@gmail.com>
+From Steve <steve@thetucks.com>
+Subject Here is our declaration
+Content-Language en-GB
+MIME-Version 1.0
+Content-Type application/pkcs7-mime; smime-type=enveloped-data; name=smime.p7m
+Content-Transfer-Encoding base64
+Content-Disposition attachment; filename=smime.p7m
 ```
 
 # Installing
