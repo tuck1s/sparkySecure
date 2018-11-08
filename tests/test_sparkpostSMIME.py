@@ -1,15 +1,8 @@
 # test sparkpostSMIME functions
 
-import email, os
-from sparkpostSMIME import buildSMIMEemail
-
-def example_mail():
-    # look for example email file in same dir as this script
-    testdir = os.path.dirname(os.path.abspath(__file__))
-    fname = os.path.join(testdir, 'example_email1.eml')
-    with open(fname, 'r') as f:
-        return email.message_from_file(f)
-
+import email
+from argparse import Namespace
+from sparkpostSMIME import do_smime
 
 def delivery_headers_match(m1, m2):
     for i in ['To', 'From', 'Subject', 'MIME-Version']:
@@ -25,40 +18,24 @@ def content_headers_are_smime(msgOut):
         msgOut.get_filename() == 'smime.p7m'
 
 
-def test_plain_unsigned():
-    msgIn = example_mail()
-    msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=False)
+def run_testcase(args):
+    with open(args.emlfile) as f:
+        msgIn = email.message_from_file(f)
+    msgOut = do_smime(args)
     assert msgOut is not None
     assert delivery_headers_match(msgIn, msgOut)
+    if args.encrypt or args.sign:
+        assert content_headers_are_smime(msgOut)
 
 
-def test_plain_signed():
-    msgIn = example_mail()
-    msgOut = buildSMIMEemail(msgIn, encrypt=False, sign=True)
-    assert msgOut is not None
-    assert delivery_headers_match(msgIn, msgOut)
-    assert content_headers_are_smime(msgOut)
-
-
-def test_encrypted_unsigned():
-    msgIn = example_mail()
-    msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=False)
-    assert msgOut is not None
-    assert delivery_headers_match(msgIn, msgOut)
-    assert content_headers_are_smime(msgOut)
-
-
-def test_encrypted_signed():
-    msgIn = example_mail()
-    msgOut = buildSMIMEemail(msgIn, encrypt=True, sign=True)
-    assert msgOut is not None
-    assert delivery_headers_match(msgIn, msgOut)
-    assert content_headers_are_smime(msgOut)
+# Exercise the code by simulating the combinations of command-line flags
+def test_smime_combinations():
+    for s in [False, True]:
+        for e in [False, True]:
+            args = Namespace(emlfile='example_email1.eml', encrypt=e, sign=s, send_api=False)
+            run_testcase(args)
 
 
 # Stub test code when running directly rather than via pytest
 if __name__ == "__main__":
-    test_plain_unsigned()
-    test_plain_signed()
-    test_encrypted_unsigned()
-    test_encrypted_signed()
+    test_smime_combinations()

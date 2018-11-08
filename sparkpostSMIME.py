@@ -76,10 +76,11 @@ def create_embedded_pkcs7_signature(data, cert, key):
     return signed_data
 
 
-def signEmailFrom(msg, fromAddr):
+def signEmailFrom(msg, pubcert, privkey):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
     :type msg: email.message.Message
-    :type fromAddr: str
+    :type pubcert: str
+    :type privkey: str
 
     Returns signed message object, in format
         Content-Type: application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"
@@ -90,29 +91,17 @@ def signEmailFrom(msg, fromAddr):
     from applying open/link tracking or other manipulations on the body.
     """
     assert isinstance(msg, email.message.Message)
-    assert isinstance(fromAddr, str)
-    pubCertFile = fromAddr + '.crt'
-    privkeyFile = fromAddr + '.pem'
-    if os.path.isfile(pubCertFile) and os.path.isfile(privkeyFile):
-        with open(pubCertFile) as cert_fp:
-            cert = cert_fp.read()
-            with open(privkeyFile) as key_fp:
-                key = key_fp.read()
-                rawMsg = msg.as_bytes()
-                sgn = create_embedded_pkcs7_signature(rawMsg, cert, key)
-                msg.set_payload(base64.encodebytes(sgn))
-                hdrList = [
-                    ('Content-Type', 'application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"'),
-                    ('Content-Transfer-Encoding', 'base64'),
-                    ('Content-Disposition', 'attachment; filename="smime.p7m"')
-                ]
-                for i in hdrList:
-                    if msg.get(i[0]):
-                        msg.replace_header(i[0], i[1])
-                    else:
-                        msg.add_header(i[0], i[1])
-    else:
-        msg = None                  # message could not be signed
+    assert isinstance(pubcert, str)
+    assert isinstance(privkey, str)
+    rawMsg = msg.as_bytes()
+    sgn = create_embedded_pkcs7_signature(rawMsg, pubcert, privkey)
+    msg.set_payload(base64.encodebytes(sgn))
+    hdrList = {
+        'Content-Type': 'application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"',
+        'Content-Transfer-Encoding': 'base64',
+        'Content-Disposition': 'attachment; filename="smime.p7m"'
+    }
+    copyHeaders(hdrList, msg)
     return msg
 
 
@@ -137,16 +126,13 @@ def fixTextPlainParts(msg):
         return msg
 
 
-def copyPayload(m1, m2):
+def copyHeaders(m1, m2):
     """
-    Replace the message payload (and MIME headers) in m2 with the contents of m1, leaving m2's other headers intact.
+    Replace the headers in m2 with the contents of m1, leaving m2's other headers intact.
 
     :type m1: email.message.Message
     :type m2: email.message.Message
     """
-    assert isinstance(m1, email.message.Message)
-    assert isinstance(m2, email.message.Message)
-    m2._payload = m1._payload
     for i in m1.items():
         if m2.get(i[0]):
             m2.replace_header(i[0], i[1])
@@ -154,31 +140,41 @@ def copyPayload(m1, m2):
             m2.add_header(i[0], i[1])
 
 
-def buildSMIMEemail(msg, encrypt=False, sign=False):
+def copyPayload(m1, m2):
+    """
+    Replace the message payload in m2 with the contents of m1, leaving m2's other headers intact.
+
+    :type m1: email.message.Message
+    :type m2: email.message.Message
+    """
+    assert isinstance(m1, email.message.Message)
+    assert isinstance(m2, email.message.Message)
+    m2._payload = m1._payload
+
+
+def buildSMIMEemail(msg, encrypt=False, sign=False, r_cert=None, s_pubcert=None, s_privkey=None):
     """
     Build SMIME email, given a message file in RFC822 .eml format. Options to encrypt and sign.
+    For encryption, requires recipient's public key cert.
+    For signing, requires sender's public key cert and private key.
 
     :type msg: email.message.Message
     """
     assert isinstance(msg, email.message.Message)
-    _, fromAddr = parseaddr(msg.get('From'))
-    _, toAddr = parseaddr(msg.get('To'))
     msg2 = deepcopy(msg)                # don't overwrite input object as we work on it
-    body = fixTextPlainParts(msg2)
+    body = fixTextPlainParts(msg2)      # ensure any text/plain parts are base64, block ciphers seem to require it
     copyPayload(body, msg2)
+    copyHeaders(body, msg2)
+
     # Sign the message, replacing it in-situ
     if sign:
-        msg2 = signEmailFrom(msg2, fromAddr)
+        msg2 = signEmailFrom(msg2, s_pubcert, s_privkey)
         if msg2==None:
-            return None                 # failed
+            return None                 # failure, exit early
     # Encrypt the message, replacing it in-situ
     if encrypt:
-        rcptFile = toAddr + '.crt'
-        with open(rcptFile, 'rb') as crtFile:
-            rcptPem = crtFile.read()
-            msg2 = smime.encrypt(msg2, rcptPem)
-
-    # could be valid message or None if an operation failed
+        msg2 = smime.encrypt(msg2, r_cert.encode('utf8'))
+        # could be valid message or None if an operation failed
     return msg2
 
 
@@ -218,6 +214,67 @@ def sendSparkPost(sp, msg):
         return 0, errMsg
 
 
+def getKeysFor(msg, encrypt, sign):
+    """
+    Get the keys for the message from current directory, depending on whether encypting, signing, or both.
+    Prints console message if invalid.
+    :type msg: email.message.Message
+    :returns keys + error = None if OK, otherwise error string
+    """
+    assert isinstance(msg, email.message.Message)
+    _, fromAddr = parseaddr(msg.get('From'))
+    _, toAddr = parseaddr(msg.get('To'))
+    r_cert, s_pubcert, s_privkey, error = None, None, None, None
+    if encrypt:
+        rcptCertFile = toAddr + '.crt'
+        if not os.path.isfile(rcptCertFile):
+            error = 'Recipient public cert file ' + rcptCertFile +  ' not found in current directory'
+        else:
+            with open(rcptCertFile, 'r') as crtFile:
+                r_cert = crtFile.read()
+    if sign:
+        pubCertFile = fromAddr + '.crt'
+        privKeyFile = fromAddr + '.pem'
+        if not os.path.isfile(pubCertFile):
+            error = 'Sender public cert file ' + pubCertFile + ' not found in current directory'
+        else:
+            with open(pubCertFile, 'r') as cert_fp:
+                s_pubcert = cert_fp.read()
+                if not os.path.isfile(privKeyFile):
+                    error = 'Sender private key file ' + privKeyFile + ' not found in current directory'
+                else:
+                    with open(privKeyFile, 'r') as key_fp:
+                        s_privkey = key_fp.read()
+    return r_cert, s_pubcert, s_privkey, error
+
+
+def do_smime(args):
+    """
+    Carry out the actions specified by the command-line args. Returns an RFC822 format email message, or exits with
+    an error unable to complete.
+
+    :param args: Namespace
+    """
+    if os.path.isfile(args.emlfile):
+        with open(args.emlfile) as fp:
+            eml = email.message_from_file(fp)
+            r_cert, s_pubcert, s_privkey, error = getKeysFor(eml, encrypt=args.encrypt, sign=args.sign)
+            if error:
+                print(error, '- stopping')
+                exit(1)
+            else:
+                msgOut = buildSMIMEemail(eml, encrypt=args.encrypt, sign=args.sign, r_cert=r_cert, s_pubcert=s_pubcert,
+                                         s_privkey=s_privkey)
+                if msgOut == None:
+                    print('Error building S/MIME file - stopping')
+                    exit(1)
+                else:
+                    return msgOut
+    else:
+        print('Unable to open file', args.emlfile, '- stopping')
+        exit(1)
+
+
 # -----------------------------------------------------------------------------------------
 # Main code
 # -----------------------------------------------------------------------------------------
@@ -227,28 +284,20 @@ if __name__ == "__main__":
     parser.add_argument('--encrypt', action='store_true', help='Encrypt with a recipient certificate containing public key. Requires file.crt where file matches To: address.')
     parser.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
     parser.add_argument('--send_api', action='store_true', help='Send via SparkPost API, using env var SPARKPOST_API_KEY and optional SPARKPOST_HOST.')
-
     args = parser.parse_args()
-    if os.path.isfile(args.emlfile):
-        with open(args.emlfile) as fp:
-            msgOut = buildSMIMEemail(email.message_from_file(fp), encrypt=args.encrypt, sign=args.sign)
-            if msgOut == None:
-                print('Error building S/MIME file - stopping')
-                exit(1)
-            if args.send_api:
-                cfg = getConfig()
-                sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
-                print('Opened connection to', sp.base_uri)
-                print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')), end='')
-                sendSparkPost(sp, msgOut)
-            else:
-                try:
-                    print(msgOut.as_string())
-                except BrokenPipeError:
-                    # See https://docs.python.org/3/library/signal.html#note-on-sigpipe
-                    devnull = os.open(os.devnull, os.O_WRONLY)
-                    os.dup2(devnull, sys.stdout.fileno())
-                    exit(1)         # Python exits with error code 1 on EPIPE
+    msgOut = do_smime(args)
+    if args.send_api:
+        cfg = getConfig()
+        sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
+        print('Opened connection to', sp.base_uri)
+        print(
+            'Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
+        sendSparkPost(sp, msgOut)
     else:
-        print('Unable to open file', args.emlfile)
-        exit(1)
+        try:
+            print(msgOut.as_string())
+        except BrokenPipeError:
+            # See https://docs.python.org/3/library/signal.html#note-on-sigpipe
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            exit(1)  # Python exits with error code 1 on EPIPE
