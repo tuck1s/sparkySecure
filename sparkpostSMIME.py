@@ -165,6 +165,7 @@ def buildSMIMEemail(msg, encrypt=False, sign=False, r_cert=None, s_pubcert=None,
     body = fixTextPlainParts(msg2)      # ensure any text/plain parts are base64, block ciphers seem to require it
     copyPayload(body, msg2)
     copyHeaders(body, msg2)
+    msg2.__delitem__('Bcc')             # always remove these from the delivered message
 
     # Sign the message, replacing it in-situ
     if sign:
