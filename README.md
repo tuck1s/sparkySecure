@@ -72,7 +72,8 @@ $ export SPARKPOST_API_KEY=<<Your API key here>>
 $ ./sparkpostSMIME.py testcases/img_and_attachment.eml --sign --encrypt --send_api
 
 Opened connection to https://api.sparkpost.com/api/v1
-Sending testcases/img_and_attachment.eml	From: Steve <steve@thetucks.com>	To: Bob <bob.lumreeker@gmail.com> OK - in 3.285 seconds
+Sending testcases/img_and_attachment.eml	From: Steve <steve@thetucks.com>	To: Bob <bob.lumreeker@gmail.com>
+OK - in 1.152 seconds
 ```
 
 # mimeshow
