@@ -7,24 +7,40 @@ from email.utils import parseaddr
 from email.mime.text import MIMEText
 from OpenSSL import crypto
 from copy import deepcopy
+from smtplib import SMTP, SMTPException
 
-def getConfig():
+def getConfig(api=True):
     """
-    Read SparkPost API sending config from env vars
-    """
-    cfg ={
-        'sparkpost_host': os.getenv('SPARKPOST_HOST', 'https://api.sparkpost.com'),
-        'sparkpost_api_key': os.getenv('SPARKPOST_API_KEY'),
-    }
-    if not cfg['sparkpost_host'].startswith('https://'):
-        cfg['sparkpost_host'] = 'https://' + cfg['sparkpost_host']  # Add schema
-    if cfg['sparkpost_host'].endswith('/'):
-        cfg['sparkpost_host'] = cfg['sparkpost_host'][:-1]          # Strip /
+    Read SparkPost API sending config (or SMTP sending config) from env vars.
 
-    for k, v in cfg.items():
-        if v == None:
-            print('Environment var {} not set - stopping'.format(k))
+    :type api: bool
+    """
+    if(api):
+        cfg ={
+            'sparkpost_host': os.getenv('SPARKPOST_HOST', 'https://api.sparkpost.com'),
+            'sparkpost_api_key': os.getenv('SPARKPOST_API_KEY'),
+        }
+        if not cfg['sparkpost_host'].startswith('https://'):
+            cfg['sparkpost_host'] = 'https://' + cfg['sparkpost_host']  # Add schema
+        if cfg['sparkpost_host'].endswith('/'):
+            cfg['sparkpost_host'] = cfg['sparkpost_host'][:-1]          # Strip /
+
+        for k, v in cfg.items():
+            if v == None:
+                print('Environment var {} not set - stopping'.format(k))
+                exit(1)
+    else:
+        # SMTP settings. SMTP_HOST is a mandatory setting.
+        cfg ={
+            'smtp_host': os.getenv('SMTP_HOST'),
+            'smtp_port': int(os.getenv('SMTP_PORT', '25')),
+            'smtp_user': os.getenv('SMTP_USER', ''),
+            'smtp_password': os.getenv('SMTP_PASSWORD', '')
+        }
+        if cfg['smtp_host'] == None:
+            print('Environment var {} not set - stopping'.format('SMTP_HOST'))
             exit(1)
+
     return cfg
 
 
@@ -284,21 +300,37 @@ if __name__ == "__main__":
     parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
     parser.add_argument('--encrypt', action='store_true', help='Encrypt with a recipient certificate containing public key. Requires file.crt where file matches To: address.')
     parser.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
-    parser.add_argument('--send_api', action='store_true', help='Send via SparkPost API, using env var SPARKPOST_API_KEY and optional SPARKPOST_HOST.')
+    output = parser.add_mutually_exclusive_group(required=False)
+    output.add_argument('--send_api', action='store_true', help='Send via SparkPost API, using env var SPARKPOST_API_KEY and optional SPARKPOST_HOST.')
+    output.add_argument('--send_smtp', action='store_true', help='Send via SMTP, using env vars SMTP_HOST, SMTP_PORT (optional, defaults to 25), SMTP_USER, SMTP_PASSWORD.')
     args = parser.parse_args()
+
     msgOut = do_smime(args)
     if args.send_api:
-        cfg = getConfig()
+        cfg = getConfig(api=True)
         sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
         print('Opened connection to', sp.base_uri)
-        print(
-            'Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
+        print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
         sendSparkPost(sp, msgOut)
+    elif args.send_smtp:
+        cfg = getConfig(api=False)
+        try:
+            startT = time.time()
+            with SMTP(cfg['smtp_host'], port=cfg['smtp_port']) as smtp:
+                if cfg['smtp_user'] and cfg['smtp_password']:
+                    smtp.login(cfg['smtp_user'], cfg['smtp_password'])
+                print('Opened SMTP connection to {}, port {}, user="{}", password="{}"'.format(cfg['smtp_host'], cfg['smtp_port'], cfg['smtp_user'], '*' * len(cfg['smtp_password'])))
+                smtp.send_message(msgOut)
+                endT = time.time()
+                print('OK - in', round(endT - startT, 3), 'seconds')
+        except SMTPException as e:
+            print(e)
+            exit(1)
     else:
+        # console output (stdout). See https://docs.python.org/3/library/signal.html#note-on-sigpipe
         try:
             print(msgOut.as_string())
         except BrokenPipeError:
-            # See https://docs.python.org/3/library/signal.html#note-on-sigpipe
             devnull = os.open(os.devnull, os.O_WRONLY)
             os.dup2(devnull, sys.stdout.fileno())
             exit(1)  # Python exits with error code 1 on EPIPE
