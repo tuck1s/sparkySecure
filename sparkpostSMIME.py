@@ -312,6 +312,7 @@ if __name__ == "__main__":
         print('Opened connection to', sp.base_uri)
         print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
         sendSparkPost(sp, msgOut)
+
     elif args.send_smtp:
         cfg = getConfig(api=False)
         try:
@@ -320,6 +321,7 @@ if __name__ == "__main__":
                 if cfg['smtp_user'] and cfg['smtp_password']:
                     smtp.login(cfg['smtp_user'], cfg['smtp_password'])
                 print('Opened SMTP connection to {}, port {}, user="{}", password="{}"'.format(cfg['smtp_host'], cfg['smtp_port'], cfg['smtp_user'], '*' * len(cfg['smtp_password'])))
+                print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
                 smtp.send_message(msgOut)
                 endT = time.time()
                 print('OK - in', round(endT - startT, 3), 'seconds')
