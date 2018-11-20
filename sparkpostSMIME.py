@@ -318,7 +318,7 @@ if __name__ == "__main__":
         try:
             startT = time.time()
             with SMTP(cfg['smtp_host'], port=cfg['smtp_port']) as smtp:
-                smtp.set_debuglevel(2)    # Uncomment this if you wish to see the SMTP conversation / STARTTLS neg.
+                #smtp.set_debuglevel(2)    # Uncomment this if you wish to see the SMTP conversation / STARTTLS neg.
                 smtp.ehlo(name='sparkpostSMIME')
                 if 'starttls' in smtp.esmtp_features:
                     smtp.starttls()         # raises an exception if it fails. If continues, we're good
