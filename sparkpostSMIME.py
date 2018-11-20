@@ -318,9 +318,22 @@ if __name__ == "__main__":
         try:
             startT = time.time()
             with SMTP(cfg['smtp_host'], port=cfg['smtp_port']) as smtp:
+                smtp.set_debuglevel(2)    # Uncomment this if you wish to see the SMTP conversation / STARTTLS neg.
+                smtp.ehlo(name='sparkpostSMIME')
+                if 'starttls' in smtp.esmtp_features:
+                    smtp.starttls()         # raises an exception if it fails. If continues, we're good
+                    smtp.ehlo(name='sparkpostSMIME')
+                    mode_str = 'STARTTLS'
+                else:
+                    mode_str = 'plain'
                 if cfg['smtp_user'] and cfg['smtp_password']:
                     smtp.login(cfg['smtp_user'], cfg['smtp_password'])
-                print('Opened SMTP connection to {}, port {}, user="{}", password="{}"'.format(cfg['smtp_host'], cfg['smtp_port'], cfg['smtp_user'], '*' * len(cfg['smtp_password'])))
+                print('Opened SMTP connection ({}) to {}, port {}, user="{}", password="{}"'.format(
+                    mode_str,
+                    cfg['smtp_host'],
+                    cfg['smtp_port'],
+                    cfg['smtp_user'],
+                    '*' * len(cfg['smtp_password'])))
                 print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
                 smtp.send_message(msgOut)
                 endT = time.time()
