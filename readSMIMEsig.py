@@ -1,28 +1,51 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import email, os, argparse
+import email, os, sys, argparse, logging, logging.handlers
 from OpenSSL import crypto
 from cryptography.hazmat.primitives import serialization
 from datetime import datetime
 from email.utils import parseaddr
 
-def get_certificates(self):
+def baseProgName():
+    return os.path.basename(sys.argv[0])
+
+
+def createLogger():
     """
-    https://github.com/pyca/pyopenssl/pull/367/files#r67300900
+    :return: logger
+
+    Create a logger. Rotates at midnight (as per the machine's locale)
+    """
+    logfile = baseProgName() + '.log'
+    logfileBackupCount = 10                     # default to 10 files
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    fh = logging.handlers.TimedRotatingFileHandler(logfile, when='midnight', backupCount=logfileBackupCount)
+    formatter = logging.Formatter('%(asctime)s,%(name)s,%(levelname)s,%(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    return logger
+
+
+def get_certificates(p7_data):
+    """
+    :param p7_data: bytes
+    :return: tuple of OpenSSL.crypto.X509 objects
 
     Returns all certificates for the PKCS7 structure, if present. Only
     objects of type ``signedData`` or ``signedAndEnvelopedData`` can embed
     certificates.
 
-    :return: The certificates in the PKCS7, or :const:`None` if
-        there are none.
-    :rtype: :class:`tuple` of :class:`X509` or :const:`None`
+    See:
+      https://stackoverflow.com/questions/16899247/how-can-i-decode-a-ssl-certificate-using-python
+      https://www.programcreek.com/python/example/64094/OpenSSL.crypto.dump_certificate
+      https://github.com/pyca/pyopenssl/pull/367/files#r67300900
     """
     certs = crypto._ffi.NULL
-    if self.type_is_signed():
-        certs = self._pkcs7.d.sign.cert
-    elif self.type_is_signedAndEnveloped():
-        certs = self._pkcs7.d.signed_and_enveloped.cert
+    if p7_data.type_is_signed():
+        certs = p7_data._pkcs7.d.sign.cert
+    elif p7_data.type_is_signedAndEnveloped():
+        certs = p7_data._pkcs7.d.signed_and_enveloped.cert
 
     pycerts = []
     for i in range(crypto._lib.sk_X509_num(certs)):
@@ -33,6 +56,7 @@ def get_certificates(self):
     if not pycerts:
         return None
     return tuple(pycerts)
+
 
 class Cert(object):
     """
@@ -48,11 +72,11 @@ class Cert(object):
 
 def extract_smime_signature(payload):
     """
+    :param payload: bytes
+    :return: list of Cert
+
     Extract public certificates from the PKCS7 binary payload.
     Returns a list of Cert objects, and a flag indicating if time-ranges are valid
-
-    :param payload: bytes
-    :return: certList: list of Cert, all_cert_times_valid
     """
     pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, payload)
     certs = get_certificates(pkcs7)
@@ -88,14 +112,15 @@ def extract_smime_signature(payload):
 
 def checkCertList(certList, fromAddr):
     """
+    :param certList: list of Cert
+    :param fromAddr: str
+    :return: bool
+
     Very basic check each of the supplied list of certificates as follows:
         - list is non-empty
         - email_signer (if present) matches fromAddr
         - cert time validity against time now
-
     Does NOT walk the cert chain - still an open issue on: https://github.com/pyca/cryptography/issues/2381
-
-    TODO: should also check DKIM / SPF as not currently checked by inbound relay webhooks
     """
     if len(certList) > 0:
         all_cert_times_valid = True
@@ -113,63 +138,75 @@ def checkCertList(certList, fromAddr):
         return False
 
 
-def writeCertList(certList, fromAddr):
+def writeCertList(certList, fromFile, logger):
     """
-    Write the supplied list of certificates to a text file, named for the fromAddr
-    i.e. <fromAddr>.crt
+    :param certList: list of Cert
+    :param fromFile: str
+    :param logger: logger
+    :return: bool
 
-    :param certList: list of Cert, fromAddr
+    Write the supplied list of certificates to a text file in current dir, named accordingly
+    i.e. **fromAddr**.crt
     """
-
-    crtFileName = fromAddr + '.crt'
     try:
-        with open(crtFileName, 'w') as fp:
+        with open(fromFile, 'w') as fp:
             for c in certList:
                 fp.write(c.pem)
         return True
 
     except Exception as e:
-        # TODO: log error
+        logger.error(e)
         return False
 
 
-def read_smime_email(args):
+def read_smime_email(eml, logger):
     """
-    Reads S/MIME signature from the email file specified in args, and extracts the sender's public key (certificates)
+    :param eml: message
+    :param logger: logger
 
-    :param args: Namespace
-
-    Thanks to:
-      https://stackoverflow.com/questions/16899247/how-can-i-decode-a-ssl-certificate-using-python
-      https://www.programcreek.com/python/example/64094/OpenSSL.crypto.dump_certificate
+    Reads S/MIME signature from the email , and extracts the sender's public key (certificates)
+    TODO: should also check DKIM / SPF as not currently checked by inbound relay webhooks
     """
-    if os.path.isfile(args.emlfile):
-        with open(args.emlfile) as fp:
-            eml = email.message_from_file(fp)
-            for part in eml.walk():
-                if part.get_content_maintype() == 'application':
-                    if part.get_content_subtype() == 'pkcs7-signature':
-                        if part.get_content_disposition() == 'attachment':
-                            fname = part.get_filename()
-                            if fname == 'smime.p7s':
-                                payload = part.get_payload(decode=True)
-                                print('Signature: {}, {} bytes'.format(fname, len(payload)))
-                                cert_list = extract_smime_signature(payload)
-                                _, fromAddr = parseaddr(eml.get('From'))
-                                if checkCertList(cert_list, fromAddr):
-                                    ok = writeCertList(cert_list, fromAddr)
+    _, fromAddr = parseaddr(eml.get('From'))
+    for part in eml.walk():
+        full_type = part['Content-Type'].replace(' ', '').split(';')
+        if part.get_content_maintype() == 'application':
+            # standalone signature
+            subtype = part.get_content_subtype()
+            if subtype == 'pkcs7-signature':
+                if part.get_content_disposition() == 'attachment':
+                    fname = part.get_filename()
+                    if fname == 'smime.p7s':
+                        payload = part.get_payload(decode=True)
+                        cert_list = extract_smime_signature(payload)
+                        logger.info('from={},subtype={},filename={},bytes={},certs={}'.format(fromAddr, subtype, fname, len(payload), len(cert_list)))
+                        for c in cert_list:
+                            logger.info('  email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(c.email_signer, c.startT, c.endT, c.algorithm, len(c.pem), c.issuer))
+                        ok = checkCertList(cert_list, fromAddr)
+                        logger.info('  basic checks pass={}'.format(ok))
+                        fromFile = fromAddr + '.crt'
+                        ok = writeCertList(cert_list, fromFile , logger)
+                        logger.info('  written file {}={}'.format(fromFile, ok))
 
-
-    else:
-        print('Unable to open file', args.emlfile, '- stopping')
-        exit(1)
+            # EnvelopedData / SignedData - not currently supported
+            elif part.get_content_subtype() == 'pkcs7-mime':
+                logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
+            else:
+                logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
 
 
 # -----------------------------------------------------------------------------------------
 # Main code
 # -----------------------------------------------------------------------------------------
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='read an S/MIME signature from a .eml file')
     parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
+    logger = createLogger()
     args = parser.parse_args()
-    print(read_smime_email(args))
+    if os.path.isfile(args.emlfile):
+        with open(args.emlfile) as fp:
+            eml = email.message_from_file(fp)
+            read_smime_email(eml, logger)
+    else:
+        print('Unable to open file', args.emlfile, '- stopping')
+        exit(1)
