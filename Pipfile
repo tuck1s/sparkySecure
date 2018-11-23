@@ -7,8 +7,10 @@ name = "pypi"
 pyopenssl = "*"
 cryptography = "*"
 "asn1crypto" = "*"
-smime = {git = "https://github.com/tuck1s/python-smime.git"}
-sparkpost = {git = "https://github.com/tuck1s/python-sparkpost.git"}
+smime = {git = "https://github.com/balena/python-smime.git"}
+sparkpost = {git = "https://github.com/sparkpost/python-sparkpost.git"}
+pytest = "*"
+dkimpy = "*"
 
 [dev-packages]
 pytest = "*"

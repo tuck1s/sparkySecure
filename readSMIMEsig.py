@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import email, os, sys, argparse, logging, logging.handlers
+import email, os, sys, argparse, logging, logging.handlers, dkim
 from OpenSSL import crypto
 from cryptography.hazmat.primitives import serialization
 from datetime import datetime
@@ -159,24 +159,27 @@ def writeCertList(certList, fromFile, logger):
         return False
 
 
+def check_dkim(message, logger):
+    d = dkim.DKIM(message.encode('utf8'), logger=logger)
+    return d.verify()
+
 def read_smime_email(eml, logger):
     """
     :param eml: message
     :param logger: logger
 
     Reads S/MIME signature from the email , and extracts the sender's public key (certificates)
-    TODO: should also check DKIM / SPF as not currently checked by inbound relay webhooks
     """
     _, fromAddr = parseaddr(eml.get('From'))
     for part in eml.walk():
         full_type = part['Content-Type'].replace(' ', '').split(';')
         if part.get_content_maintype() == 'application':
-            # standalone signature
             subtype = part.get_content_subtype()
             if subtype == 'pkcs7-signature':
                 if part.get_content_disposition() == 'attachment':
                     fname = part.get_filename()
                     if fname == 'smime.p7s':
+                        # standalone signature
                         payload = part.get_payload(decode=True)
                         cert_list = extract_smime_signature(payload)
                         logger.info('from={},subtype={},filename={},bytes={},certs={}'.format(fromAddr, subtype, fname, len(payload), len(cert_list)))
@@ -188,8 +191,8 @@ def read_smime_email(eml, logger):
                         ok = writeCertList(cert_list, fromFile , logger)
                         logger.info('  written file {}={}'.format(fromFile, ok))
 
-            # EnvelopedData / SignedData - not currently supported
             elif part.get_content_subtype() == 'pkcs7-mime':
+                # EnvelopedData / SignedData - not currently supported
                 logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
             else:
                 logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
@@ -205,8 +208,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if os.path.isfile(args.emlfile):
         with open(args.emlfile) as fp:
-            eml = email.message_from_file(fp)
-            read_smime_email(eml, logger)
+            eml_str = fp.read()
+            ok = check_dkim(eml_str, logger)
+            logger.info('DKIM pass={}'.format(ok))
+            msg = email.message_from_string(eml_str)
+            read_smime_email(msg, logger)
     else:
         print('Unable to open file', args.emlfile, '- stopping')
         exit(1)
