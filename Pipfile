@@ -10,7 +10,10 @@ cryptography = "*"
 smime = {git = "https://github.com/balena/python-smime.git"}
 sparkpost = {git = "https://github.com/sparkpost/python-sparkpost.git"}
 pytest = "*"
+dnspython = "*"
 dkimpy = "*"
+gunicorn = "*"
+flask = "*"
 
 [dev-packages]
 pytest = "*"

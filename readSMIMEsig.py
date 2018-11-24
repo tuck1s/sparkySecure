@@ -159,43 +159,64 @@ def writeCertList(certList, fromFile, logger):
         return False
 
 
-def check_dkim(message, logger):
-    d = dkim.DKIM(message.encode('utf8'), logger=logger)
-    return d.verify()
-
-def read_smime_email(eml, logger):
+def check_dkim(msg_bytes, fromAddr, logger):
     """
-    :param eml: message
+    :param msg_bytes: bytes
+    :param fromAddr: str
+    :param logger: logger
+    :return: bool
+
+    Validate the message (passed as a byte sequence, as that's what the dkimpy library wants)
+    """
+    d = dkim.DKIM(msg_bytes, logger=logger)
+    valid_dkim = d.verify()
+    _, fromDomain = fromAddr.split('@')
+    matching_from = d.domain.decode('utf8') == fromDomain
+    return valid_dkim and matching_from
+
+def read_smime_email(eml_bytes, logger):
+    """
+    :param eml_bytes: bytes
     :param logger: logger
 
+    Checks DKIM validity - only accept messages that pass
     Reads S/MIME signature from the email , and extracts the sender's public key (certificates)
     """
+    eml = email.message_from_bytes(eml_bytes)
     _, fromAddr = parseaddr(eml.get('From'))
-    for part in eml.walk():
-        full_type = part['Content-Type'].replace(' ', '').split(';')
-        if part.get_content_maintype() == 'application':
-            subtype = part.get_content_subtype()
-            if subtype == 'pkcs7-signature':
-                if part.get_content_disposition() == 'attachment':
-                    fname = part.get_filename()
-                    if fname == 'smime.p7s':
-                        # standalone signature
-                        payload = part.get_payload(decode=True)
-                        cert_list = extract_smime_signature(payload)
-                        logger.info('from={},subtype={},filename={},bytes={},certs={}'.format(fromAddr, subtype, fname, len(payload), len(cert_list)))
-                        for c in cert_list:
-                            logger.info('  email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(c.email_signer, c.startT, c.endT, c.algorithm, len(c.pem), c.issuer))
-                        ok = checkCertList(cert_list, fromAddr)
-                        logger.info('  basic checks pass={}'.format(ok))
-                        fromFile = fromAddr + '.crt'
-                        ok = writeCertList(cert_list, fromFile , logger)
-                        logger.info('  written file {}={}'.format(fromFile, ok))
 
-            elif part.get_content_subtype() == 'pkcs7-mime':
-                # EnvelopedData / SignedData - not currently supported
-                logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
-            else:
-                logger.error('from={},type={},subtype={} - unable to process'.format(fromAddr, full_type, subtype))
+    # Check message passes DKIM checks. Otherwise we can't trust the From: field
+    dkim_ok = check_dkim(eml_bytes, fromAddr, logger)
+    if not dkim_ok:
+        logger.warning('from={},DKIM FAIL'.format(fromAddr))
+    else:
+        logger.info('from={},DKIM passed'.format(fromAddr))
+        for part in eml.walk():
+            full_type = part['Content-Type']
+            content_desc = part['Content-Description']
+            if part.get_content_maintype() == 'application':
+                subtype = part.get_content_subtype()
+                if subtype == 'pkcs7-signature':
+                    if part.get_content_disposition() == 'attachment':
+                        fname = part.get_filename()
+                        if fname == 'smime.p7s':
+                            # standalone signature
+                            payload = part.get_payload(decode=True)
+                            cert_list = extract_smime_signature(payload)
+                            logger.info('| type={},subtype={},filename={},bytes={},certs={}'.format(type, subtype, fname, len(payload), len(cert_list)))
+                            for c in cert_list:
+                                logger.info('| email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(c.email_signer, c.startT, c.endT, c.algorithm, len(c.pem), c.issuer))
+                            ok = checkCertList(cert_list, fromAddr)
+                            logger.info('| basic checks pass={}'.format(ok))
+                            fromFile = fromAddr + '.crt'
+                            ok = writeCertList(cert_list, fromFile , logger)
+                            logger.info('| written file {}={}'.format(fromFile, ok))
+
+                elif part.get_content_subtype() == 'pkcs7-mime':
+                    # EnvelopedData / SignedData - not currently supported
+                    logger.warning('from={},type={},subtype={},content-description={} : ignored'.format(fromAddr, full_type, subtype, content_desc))
+                else:
+                    logger.warning('from={},type={},subtype={},content-description={} : ignored'.format(fromAddr, full_type, subtype, content_desc))
 
 
 # -----------------------------------------------------------------------------------------
@@ -207,12 +228,9 @@ if __name__ == '__main__':
     logger = createLogger()
     args = parser.parse_args()
     if os.path.isfile(args.emlfile):
-        with open(args.emlfile) as fp:
-            eml_str = fp.read()
-            ok = check_dkim(eml_str, logger)
-            logger.info('DKIM pass={}'.format(ok))
-            msg = email.message_from_string(eml_str)
-            read_smime_email(msg, logger)
+        with open(args.emlfile, 'rb') as fp:
+            eml_bytes = fp.read()
+            read_smime_email(eml_bytes, logger)
     else:
         print('Unable to open file', args.emlfile, '- stopping')
         exit(1)
