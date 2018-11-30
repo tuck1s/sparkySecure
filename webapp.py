@@ -37,8 +37,8 @@ def handle_inbound_relay():
     """
     logfile = 'webapp.log'
     logger = createLogger(logfile)
-    logger.info('Request from {}, scheme={}, path={}'.format(request.remote_addr, request.scheme, request.path))
-    logger.info('| Headers: {}, Body: {} bytes'.format(len(request.headers), request.content_length))
+    logger.info('Request from {},scheme={},path={}'.format(request.remote_addr, request.scheme, request.path))
+    logger.info('| len(headers)={},len(body)={}'.format(len(request.headers), request.content_length))
 
     # Check request data format, header token value is correct (if present)
     if request.content_type != 'application/json':
@@ -56,12 +56,18 @@ def handle_inbound_relay():
             logger.info('| Invalid X-MessageSystems-Webhook-Token in request headers: {}, must match {}'.format(got_token, expected_token))
             raise InvalidUsage('Invalid X-MessageSystems-Webhook-Token in request headers')
 
+    """ debug code
+    dat = request.get_data()
+    with open('debug.json', 'wb') as f:
+        f.write(dat)
+    """
+
     req = request.get_json()
     for i in req:
         m = i['msys']['relay_message']
         c = m['content']
         rxMail = c['email_rfc822'].encode('utf8')
-        logger.info('| msg_from={}, rcpt_to={}, email_rfc822: {} bytes'.format(m['msg_from'], m['rcpt_to'], len(rxMail)))
+        logger.info('| msg_from={},rcpt_to={},len(email_rfc822)={}'.format(m['msg_from'], m['rcpt_to'], len(rxMail)))
         read_smime_email(rxMail, logger)
 
     return 'OK'

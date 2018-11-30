@@ -187,9 +187,9 @@ def read_smime_email(eml_bytes, logger):
     # Check message passes DKIM checks. Otherwise we can't trust the From: field
     dkim_ok = check_dkim(eml_bytes, fromAddr, logger)
     if not dkim_ok:
-        logger.warning('from={},DKIM FAIL'.format(fromAddr))
+        logger.warning('| from={},DKIM FAIL'.format(fromAddr))
     else:
-        logger.info('from={},DKIM passed'.format(fromAddr))
+        logger.info('| from={},DKIM passed'.format(fromAddr))
         for part in eml.walk():
             full_type = part['Content-Type']
             content_desc = part['Content-Description']
@@ -202,7 +202,7 @@ def read_smime_email(eml_bytes, logger):
                             # standalone signature
                             payload = part.get_payload(decode=True)
                             cert_list = extract_smime_signature(payload)
-                            logger.info('| type={},subtype={},filename={},bytes={},certs={}'.format(type, subtype, fname, len(payload), len(cert_list)))
+                            logger.info('| content-type={},content-description={},filename={},bytes={},certs={}'.format(full_type, content_desc, fname, len(payload), len(cert_list)))
                             for c in cert_list:
                                 logger.info('| email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(c.email_signer, c.startT, c.endT, c.algorithm, len(c.pem), c.issuer))
                             ok = checkCertList(cert_list, fromAddr)
