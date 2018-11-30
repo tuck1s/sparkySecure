@@ -10,13 +10,12 @@ def baseProgName():
     return os.path.basename(sys.argv[0])
 
 
-def createLogger():
+def createLogger(logfile):
     """
     :return: logger
 
     Create a logger. Rotates at midnight (as per the machine's locale)
     """
-    logfile = baseProgName() + '.log'
     logfileBackupCount = 10                     # default to 10 files
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
