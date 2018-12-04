@@ -208,7 +208,7 @@ def read_smime_email(eml_bytes, logger):
                             ok = checkCertList(cert_list, fromAddr)
                             logger.info('| basic checks pass={}'.format(ok))
                             fromFile = fromAddr + '.crt'
-                            ok = writeCertList(cert_list, fromFile , logger)
+                            ok = writeCertList(cert_list, fromFile, logger)
                             logger.info('| written file {}={}'.format(fromFile, ok))
 
                 elif part.get_content_subtype() == 'pkcs7-mime':
@@ -219,12 +219,12 @@ def read_smime_email(eml_bytes, logger):
 
 
 # -----------------------------------------------------------------------------------------
-# Main code
+# Main code - used only for development. webapp.py will call read_smime_email directly.
 # -----------------------------------------------------------------------------------------
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='read an S/MIME signature from a .eml file')
     parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
-    logger = createLogger()
+    logger = createLogger('readSMIMEsig.log')
     args = parser.parse_args()
     if os.path.isfile(args.emlfile):
         with open(args.emlfile, 'rb') as fp:

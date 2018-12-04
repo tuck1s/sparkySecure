@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 class InvalidUsage(Exception):
     """
-    Error handler - see http://flask.pocoo.org/docs/1.0/patterns/apierrors/
+    Easy http Error reporting via "raise" - see http://flask.pocoo.org/docs/1.0/patterns/apierrors/
     """
     status_code = 400
 
@@ -33,7 +33,7 @@ def handle_invalid_usage(error):
 @app.route('/', methods = ['POST'])
 def handle_inbound_relay():
     """
-    Flask application entry point.
+    Flask application entry point. Log actions to local application logfile.
     """
     logfile = 'webapp.log'
     logger = createLogger(logfile)
@@ -69,7 +69,6 @@ def handle_inbound_relay():
         rxMail = c['email_rfc822'].encode('utf8')
         logger.info('| msg_from={},rcpt_to={},len(email_rfc822)={}'.format(m['msg_from'], m['rcpt_to'], len(rxMail)))
         read_smime_email(rxMail, logger)
-
     return 'OK'
 
 # Start the app
