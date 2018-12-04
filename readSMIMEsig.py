@@ -72,7 +72,7 @@ def get_certificates(p7_data):
     return tuple(pycerts)
 
 
-def verify_certificate_chain(certificate, trusted_certs):
+def verify_certificate_chain(certificate, intermediate, trusted_certs):
     """
     Verify that the certificate is valid, according to the list of trusted_certs.
 
@@ -89,13 +89,20 @@ def verify_certificate_chain(certificate, trusted_certs):
         for tc in trusted_certs:
             store.add_cert(tc)
 
-        # Create a certificate context using the store and the downloaded certificate
+        # Create a certificate context using the store and the intermediate certificate
+        store_ctx = crypto.X509StoreContext(store, intermediate)
+        store_ctx.verify_certificate()
+
+        # Intermediate verified - so add the intermediate to the store
+        store.add_cert(crypto.X509.from_cryptography(intermediate))
+
+        # Validate certificate against (trusted + intermediate)
         store_ctx = crypto.X509StoreContext(store, certificate)
         # Verify the certificate, returns None if it can validate the certificate
         store_ctx.verify_certificate()
         return True
 
-    except Exception as e:
+    except crypto.X509StoreContextError as e:
         print(e)
         return False
 
@@ -126,6 +133,7 @@ def extract_smime_signature(payload):
     pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, payload)
     certs = get_certificates(pkcs7)
 
+    cert, intermediate = None, None
     # Collect the following info from the certificates
     for c in certs:
         # Convert to the modern & easier to use https://cryptography.io library objects
@@ -134,32 +142,32 @@ def extract_smime_signature(payload):
         if s2:
             cert = c2
         else:
-            issuer = c2             #TODO: we need to use this in the "verify" step but unclear how to at the moment
+            intermediate = c2
 
-    bundle = get_trusted_certs('ca-bundle.crt')
-    ok = verify_certificate_chain(cert, bundle)
+    trusted = get_trusted_certs('ca-bundle.crt')
+    ok = verify_certificate_chain(cert, intermediate, trusted)
+    if ok:
+        #TODO: change this so we don't need homegrown "Cert" type
+        c3 = Cert()
+        c3.startT = cert.not_valid_before
+        c3.endT = cert.not_valid_after
 
-    #TODO: replace / augment this old validation code with above result
-    c3 = Cert()
-    print("ok:".format(ok))
-    # check each certificate's time validity, ANDing cumulatively across each one
-    c3.startT = cert.not_valid_before
-    c3.endT = cert.not_valid_after
+        # get Issuer, unpacking the ASN.1 structure into a dict
+        for i in cert.issuer.rdns:
+            for j in i:
+                c3.issuer[j.oid._name] = j.value
 
-    # get Issuer, unpacking the ASN.1 structure into a dict
-    for i in cert.issuer.rdns:
-        for j in i:
-            c3.issuer[j.oid._name] = j.value
+        # get email address from the cert "subject". There should be only one email address.
+        s2 = cert.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
+        if len(s2) == 1:
+            c3.email_signer = s2[0].value
 
-    # get email address from the cert "subject". There should be only one email address.
-    s2 = cert.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
-    if len(s2) == 1:
-        c3.email_signer = s2[0].value
-
-    # Get hash alg - just for interest
-    c3.algorithm = cert.signature_hash_algorithm.name
-    c3.pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf8')
-    return c3
+        # Get hash alg - just for interest
+        c3.algorithm = cert.signature_hash_algorithm.name
+        c3.pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf8')
+        return c3
+    else:
+        return None
 
 
 def checkCert(cert, fromAddr):
