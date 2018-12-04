@@ -2,7 +2,10 @@
 from __future__ import print_function
 import email, os, sys, argparse, logging, logging.handlers, dkim
 from OpenSSL import crypto
+from cryptography.x509 import NameOID
 from cryptography.hazmat.primitives import serialization
+import pem
+
 from datetime import datetime
 from email.utils import parseaddr
 
@@ -24,6 +27,18 @@ def createLogger(logfile):
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     return logger
+
+
+class Cert(object):
+    """
+    Convenient container object for human-readable and output-file friendly certificate contents
+    """
+    pem = ''
+    email_signer = None
+    startT = None
+    endT = None
+    issuer = {}
+    algorithm = None
 
 
 def get_certificates(p7_data):
@@ -57,16 +72,47 @@ def get_certificates(p7_data):
     return tuple(pycerts)
 
 
-class Cert(object):
+def verify_certificate_chain(certificate, trusted_certs):
     """
-    Convenient container object for human-readable and output-file friendly certificate contents
+    Verify that the certificate is valid, according to the list of trusted_certs.
+
+    Certificate to examine, and the trusted chain are passed as objects, not as file handles.
+    Based on https://gist.github.com/uilianries/0459f59287bd63e49b1b8ef03b30d421#file-cert-check-py
+
+    :param certificate: OpenSSL.crypto.X509
+    :param trusted_certs: list of OpenSSL.crypto.X509
+    :return: bool
     """
-    pem = ''
-    email_signer = None
-    startT = None
-    endT = None
-    issuer = {}
-    algorithm = None
+    try:
+        #Create a certificate store and add your trusted certs
+        store = crypto.X509Store()
+        for tc in trusted_certs:
+            store.add_cert(tc)
+
+        # Create a certificate context using the store and the downloaded certificate
+        store_ctx = crypto.X509StoreContext(store, certificate)
+        # Verify the certificate, returns None if it can validate the certificate
+        store_ctx.verify_certificate()
+        return True
+
+    except Exception as e:
+        print(e)
+        return False
+
+
+def get_trusted_certs(fname):
+    """
+    Reads a list of trusted certs from the provided file
+
+    :param fname: filename to read
+    :return: list of OpenSSL.crypto.X509
+    """
+
+    trustedList = pem.parse_file(fname)
+    x509_list = []
+    for t in trustedList:
+        x509_list.append(crypto.load_certificate(crypto.FILETYPE_PEM, t.as_bytes()))
+    return x509_list
 
 
 def extract_smime_signature(payload):
@@ -79,67 +125,66 @@ def extract_smime_signature(payload):
     """
     pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, payload)
     certs = get_certificates(pkcs7)
-    certList = []
+
     # Collect the following info from the certificates
     for c in certs:
         # Convert to the modern & easier to use https://cryptography.io library objects
         c2 = crypto.X509.to_cryptography(c)
-        c3 = Cert()
+        s2 = c2.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
+        if s2:
+            cert = c2
+        else:
+            issuer = c2             #TODO: we need to use this in the "verify" step but unclear how to at the moment
 
-        # check each certificate's time validity, ANDing cumulatively across each one
-        c3.startT = c2.not_valid_before
-        c3.endT = c2.not_valid_after
+    bundle = get_trusted_certs('ca-bundle.crt')
+    ok = verify_certificate_chain(cert, bundle)
 
-        # get Issuer, unpacking the ASN.1 structure into a dict
-        for i in c2.issuer.rdns:
-            for j in i:
-                c3.issuer[j.oid._name] = j.value
+    #TODO: replace / augment this old validation code with above result
+    c3 = Cert()
+    print("ok:".format(ok))
+    # check each certificate's time validity, ANDing cumulatively across each one
+    c3.startT = cert.not_valid_before
+    c3.endT = cert.not_valid_after
 
-        # get email address from the cert "subject"
-        for i in c2.subject.rdns:
-            for j in i:
-                attrName = j.oid._name
-                if attrName == 'emailAddress':
-                    c3.email_signer = j.value
+    # get Issuer, unpacking the ASN.1 structure into a dict
+    for i in cert.issuer.rdns:
+        for j in i:
+            c3.issuer[j.oid._name] = j.value
 
-        # Get hash alg - just for interest
-        c3.algorithm = c2.signature_hash_algorithm.name
-        c3.pem = c2.public_bytes(serialization.Encoding.PEM).decode('utf8')
-        certList.append(c3)
-    return certList
+    # get email address from the cert "subject". There should be only one email address.
+    s2 = cert.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
+    if len(s2) == 1:
+        c3.email_signer = s2[0].value
+
+    # Get hash alg - just for interest
+    c3.algorithm = cert.signature_hash_algorithm.name
+    c3.pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf8')
+    return c3
 
 
-def checkCertList(certList, fromAddr):
+def checkCert(cert, fromAddr):
     """
-    :param certList: list of Cert
+    :param cert: Cert
     :param fromAddr: str
     :return: bool
 
-    Very basic check each of the supplied list of certificates as follows:
-        - list is non-empty
+    Very basic check of the supplied certificate as follows:
         - email_signer (if present) matches fromAddr
         - cert time validity against time now
     Does NOT walk the cert chain - still an open issue on: https://github.com/pyca/cryptography/issues/2381
     """
-    if len(certList) > 0:
-        all_cert_times_valid = True
-        from_valid = True
-        for c in certList:
-            # Check time validity
-            now = datetime.utcnow()
-            all_cert_times_valid = all_cert_times_valid and (c.startT <= now) and (now <= c.endT)
-            # Check signer matches fromAddr
-            if c.email_signer:
-                from_valid = from_valid and (c.email_signer == fromAddr)
 
-        return all_cert_times_valid and from_valid
-    else:
-        return False
+    # Check time validity
+    now = datetime.utcnow()
+    all_cert_times_valid = (cert.startT <= now) and (now <= cert.endT)
+    # Check signer matches fromAddr
+    from_valid = cert.email_signer == fromAddr
+    return all_cert_times_valid and from_valid
 
 
-def writeCertList(certList, fromFile, logger):
+def writeCert(cert, fromFile, logger):
     """
-    :param certList: list of Cert
+    :param cert: Cert
     :param fromFile: str
     :param logger: logger
     :return: bool
@@ -149,8 +194,7 @@ def writeCertList(certList, fromFile, logger):
     """
     try:
         with open(fromFile, 'w') as fp:
-            for c in certList:
-                fp.write(c.pem)
+            fp.write(cert.pem)
         return True
 
     except Exception as e:
@@ -201,14 +245,14 @@ def read_smime_email(eml_bytes, logger):
                         if fname == 'smime.p7s':
                             # standalone signature
                             payload = part.get_payload(decode=True)
-                            cert_list = extract_smime_signature(payload)
-                            logger.info('| content-type={},content-description={},filename={},bytes={},certs={}'.format(full_type, content_desc, fname, len(payload), len(cert_list)))
-                            for c in cert_list:
-                                logger.info('| email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(c.email_signer, c.startT, c.endT, c.algorithm, len(c.pem), c.issuer))
-                            ok = checkCertList(cert_list, fromAddr)
+                            mailcert = extract_smime_signature(payload)
+                            logger.info('| content-type={},content-description={},filename={},bytes={}'.format(full_type, content_desc, fname, len(payload) ))
+                            logger.info('| email_signer={},not_valid_before={},not_valid_after={},algorithm={},pem bytes={},issuer={}'.format(
+                                mailcert.email_signer, mailcert.startT, mailcert.endT, mailcert.algorithm, len(mailcert.pem), mailcert.issuer))
+                            ok = checkCert(mailcert, fromAddr)
                             logger.info('| basic checks pass={}'.format(ok))
                             fromFile = fromAddr + '.crt'
-                            ok = writeCertList(cert_list, fromFile, logger)
+                            ok = writeCert(mailcert, fromFile, logger)
                             logger.info('| written file {}={}'.format(fromFile, ok))
 
                 elif part.get_content_subtype() == 'pkcs7-mime':
