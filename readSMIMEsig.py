@@ -1,18 +1,34 @@
 #!/usr/bin/env python3
 from __future__ import print_function
-import email, os, sys, argparse, logging, logging.handlers, dkim, pem
+import email, os, argparse, logging, logging.handlers, dkim, pem, configparser, cryptography
+
 from email.utils import parseaddr
-
-from OpenSSL import crypto
-from cryptography.x509 import NameOID
+from OpenSSL import crypto                  # need some legacy functions from here
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
-def baseProgName():
-    return os.path.basename(sys.argv[0])
+
+def get_trusted_certs(fname):
+    """
+    :param fname: filename to read
+    :return: list of cryptography.x509.Certificate
+
+    Reads a list of trusted certs from the provided file, using the "pem" library to parse the file.
+    """
+    if os.path.isfile(fname):
+        trustedList = pem.parse_file(fname)
+        x509_list = []
+        for t in trustedList:
+            c2 = cryptography.x509.load_pem_x509_certificate(t.as_bytes(), default_backend())
+            x509_list.append(c2)
+        return x509_list
+    else:
+        return None
 
 
 def createLogger(logfile):
     """
+    :param logfile: str
     :return: logger
 
     Create a logger. Rotates at midnight (as per the machine's locale)
@@ -29,8 +45,8 @@ def createLogger(logfile):
 
 def get_certificates(p7_data):
     """
-    :param p7_data: bytes
-    :return: tuple of OpenSSL.crypto.X509 objects
+    :param p7_data: OpenSSL.crypto.PKCS7
+    :return: list of cryptography.x509.Certificate
 
     Returns all certificates for the PKCS7 structure, if present. Only
     objects of type ``signedData`` or ``signedAndEnvelopedData`` can embed
@@ -51,39 +67,43 @@ def get_certificates(p7_data):
     for i in range(crypto._lib.sk_X509_num(certs)):
         pycert = crypto.X509.__new__(crypto.X509)
         pycert._x509 = crypto._lib.sk_X509_value(certs, i)
-        pycerts.append(pycert)
+        pycerts.append(crypto.X509.to_cryptography(pycert))
 
     if not pycerts:
         return None
-    return tuple(pycerts)
+    return pycerts
 
 
 def verify_certificate_chain(certificate, intermediates, trusted_certs):
     """
-    Verify that the certificate is valid, according to the list of trusted_certs.
+    :param certificate: cryptography.x509.Certificate
+    :param intermediates: list of cryptography.x509.Certificate
+    :param trusted_certs: list of cryptography.x509.Certificate
 
-    Certificate to examine, and the trusted chain are passed as objects, not as file handles.
-    Based on https://gist.github.com/uilianries/0459f59287bd63e49b1b8ef03b30d421#file-cert-check-py
+    Verify that the certificate is valid, according to the list of intermediates and trusted_certs.
+    Uses legacy crypto.X509 functions as cannot find an equivalent in https://cryptography.io/en/latest/
 
-    :param certificate: OpenSSL.crypto.X509
-    :param trusted_certs: list of OpenSSL.crypto.X509
+    See:
+    https://gist.github.com/uilianries/0459f59287bd63e49b1b8ef03b30d421#file-cert-check-py
+
     :return: bool
     """
     try:
         #Create a certificate store and add your trusted certs
         store = crypto.X509Store()
         for tc in trusted_certs:
-            store.add_cert(tc)
+            store.add_cert(crypto.X509.from_cryptography(tc))
 
         # Create a certificate context using the store, to check any intermediate certificates
         for i in intermediates:
-            store_ctx = crypto.X509StoreContext(store, i)
+            i_X509 = crypto.X509.from_cryptography(i)
+            store_ctx = crypto.X509StoreContext(store, i_X509)
             store_ctx.verify_certificate()
             # no exception, so Intermediate verified - add the intermediate to the store
-            store.add_cert(crypto.X509.from_cryptography(i))
+            store.add_cert(i_X509)
 
         # Validate certificate against (trusted + intermediate)
-        store_ctx = crypto.X509StoreContext(store, certificate)
+        store_ctx = crypto.X509StoreContext(store, crypto.X509.from_cryptography(certificate))
         # Verify the certificate, returns None if it can validate the certificate
         store_ctx.verify_certificate()
         return True
@@ -93,24 +113,10 @@ def verify_certificate_chain(certificate, intermediates, trusted_certs):
         return False
 
 
-def get_trusted_certs(fname):
-    """
-    Reads a list of trusted certs from the provided file
-
-    :param fname: filename to read
-    :return: list of OpenSSL.crypto.X509
-    """
-
-    trustedList = pem.parse_file(fname)
-    x509_list = []
-    for t in trustedList:
-        x509_list.append(crypto.load_certificate(crypto.FILETYPE_PEM, t.as_bytes()))
-    return x509_list
-
-
-def extract_smime_signature(payload, logger):
+def extract_smime_signature(payload, trusted, logger):
     """
     :param payload: bytes
+    :param trusted: list of
     :return: list of Cert
 
     Extract public certificates from the PKCS7 binary payload.
@@ -120,35 +126,26 @@ def extract_smime_signature(payload, logger):
     certs = get_certificates(pkcs7)
 
     cert, intermediates = None, []
-    # Collect the following info from the certificates
     for c in certs:
-        # Convert to the modern & easier to use https://cryptography.io library objects
-        c2 = crypto.X509.to_cryptography(c)
-
         # Log some human-readable info about each cert
-        c2_email_addrs = []
-        c2_issuer_info = {}
-        for i in c2.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS):
-            c2_email_addrs.append(i.value)
-        for i in c2.issuer:
-            c2_issuer_info.update( {i.oid._name: i.value} )
+        c_email_addrs = []
+        c_issuer_info = {}
+        for i in c.subject.get_attributes_for_oid(cryptography.x509.NameOID.EMAIL_ADDRESS):
+            c_email_addrs.append(i.value)
+        for i in c.issuer:
+            c_issuer_info.update( {i.oid._name: i.value} )
         logger.info(
             '| Certificate: subject email_address={},not_valid_before={},not_valid_after={},hash_algorithm={},key_size={} bytes, issuer={}'.format(
-                c2_email_addrs,
-                c2.not_valid_before,
-                c2.not_valid_after,
-                c2.signature_hash_algorithm.name,
-                c2.public_key().key_size,
-                c2_issuer_info
+                c_email_addrs, c.not_valid_before, c.not_valid_after, c.signature_hash_algorithm.name,
+                c.public_key().key_size, c_issuer_info
             ))
 
         # Check if this is an email user certificate, or an intermediate
-        if c2_email_addrs:
-            cert = c2
+        if c_email_addrs:
+            cert = c
         else:
-            intermediates.append(c2)
+            intermediates.append(c)
 
-    trusted = get_trusted_certs('ca-bundle.crt')
     if verify_certificate_chain(cert, intermediates, trusted):
         pem_bytes = cert.public_bytes(serialization.Encoding.PEM)
         return pem_bytes
@@ -191,49 +188,56 @@ def check_dkim(msg_bytes, fromAddr, logger):
     return valid_dkim and matching_from
 
 
-def read_smime_email(eml_bytes, logger):
+def read_smime_email(eml_bytes, cfg, logger):
     """
     :param eml_bytes: bytes
+    :param cfg: configparser.SectionProxy
     :param logger: logger
 
-    Checks DKIM validity - only accept messages that pass
-    Reads S/MIME signature from the email , and extracts the sender's public key (certificates)
+    Reads S/MIME signature from the email, extracts and validates the sender's public key certificate.
+    Mail must also pass DKIM check so that the from address is valid.
     """
-    eml = email.message_from_bytes(eml_bytes)
-    _, fromAddr = parseaddr(eml.get('From'))
-
-    # Check message passes DKIM checks. Otherwise we can't trust the From: field
-    dkim_ok = check_dkim(eml_bytes, fromAddr, logger)
-    if not dkim_ok:
-        logger.warning('| from={},DKIM FAIL'.format(fromAddr))
+    # Prepare to check certificate(s) validity by getting list of trusted certs from host environment
+    trusted_certs_file = cfg.get('trusted-certs', '')
+    trusted = get_trusted_certs(trusted_certs_file)
+    if trusted == None:
+        logger.error('Problem loading trusted certificate bundle from file {} - stopping. Check webapp.ini.'.format(trusted_certs_file))
     else:
-        logger.info('| from={},DKIM passed'.format(fromAddr))
-        for part in eml.walk():
-            full_type = part['Content-Type']
-            content_desc = part['Content-Description']
-            logger.info('| content-type={},content-description={}'.format(full_type, content_desc))
+        eml = email.message_from_bytes(eml_bytes)
+        _, fromAddr = parseaddr(eml.get('From'))
 
-            if part.get_content_maintype() == 'application':
-                subtype = part.get_content_subtype()
-                if subtype == 'pkcs7-signature':
-                    if part.get_content_disposition() == 'attachment':
-                        fname = part.get_filename()
-                        payload = part.get_payload(decode=True)
-                        logger.info('| filename={},bytes={}'.format(fname, len(payload)))
+        # Check message passes DKIM checks. Otherwise we can't trust the From: field
+        dkim_ok = check_dkim(eml_bytes, fromAddr, logger)
+        if not dkim_ok:
+            logger.warning('| from={},DKIM FAIL'.format(fromAddr))
+        else:
+            logger.info('| from={},DKIM passed'.format(fromAddr))
+            for part in eml.walk():
+                full_type = part['Content-Type']
+                content_desc = part['Content-Description']
+                logger.info('| content-type={},content-description={}'.format(full_type, content_desc))
 
-                        if fname == 'smime.p7s':
-                            # standalone signature
-                            user_pem = extract_smime_signature(payload, logger)
-                            if user_pem:
-                                fromFile = fromAddr + '.crt'
-                                ok = writeCert(user_pem, fromFile, logger)
-                                logger.info('| written file {},bytes={},ok={}'.format(fromFile, len(user_pem), ok))
+                if part.get_content_maintype() == 'application':
+                    subtype = part.get_content_subtype()
+                    if subtype == 'pkcs7-signature':
+                        if part.get_content_disposition() == 'attachment':
+                            fname = part.get_filename()
+                            payload = part.get_payload(decode=True)
+                            logger.info('| filename={},bytes={}'.format(fname, len(payload)))
 
-                elif part.get_content_subtype() == 'pkcs7-mime':
-                    # EnvelopedData / SignedData - not currently supported
-                    logger.warning('| Currently not implemented - ignored')
-                else:
-                    logger.warning('| Unknown subtype - ignored')
+                            if fname == 'smime.p7s':
+                                # standalone signature
+                                user_pem = extract_smime_signature(payload, trusted, logger)
+                                if user_pem:
+                                    fromFile = os.path.join(cfg.get('user-certs-dir', '.'), fromAddr + '.crt')
+                                    ok = writeCert(user_pem, fromFile, logger)
+                                    logger.info('| written file {},bytes={},ok={}'.format(fromFile, len(user_pem), ok))
+
+                    elif part.get_content_subtype() == 'pkcs7-mime':
+                        # EnvelopedData / SignedData - not currently supported
+                        logger.warning('| Currently not implemented - ignored')
+                    else:
+                        logger.warning('| Unknown subtype - ignored')
 
 
 # -----------------------------------------------------------------------------------------
@@ -242,12 +246,17 @@ def read_smime_email(eml_bytes, logger):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='read an S/MIME signature from a .eml file')
     parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
-    logger = createLogger('readSMIMEsig.log')
+    logger = createLogger('webapp.log')
+
+    config = configparser.ConfigParser()
+    config.read('webapp.ini')
+    cfg = config['webapp']
+
     args = parser.parse_args()
     if os.path.isfile(args.emlfile):
         with open(args.emlfile, 'rb') as fp:
             eml_bytes = fp.read()
-            read_smime_email(eml_bytes, logger)
+            read_smime_email(eml_bytes, cfg, logger)
     else:
         print('Unable to open file', args.emlfile, '- stopping')
         exit(1)

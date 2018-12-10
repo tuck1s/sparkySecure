@@ -56,19 +56,13 @@ def handle_inbound_relay():
             logger.info('| Invalid X-MessageSystems-Webhook-Token in request headers: {}, must match {}'.format(got_token, expected_token))
             raise InvalidUsage('Invalid X-MessageSystems-Webhook-Token in request headers')
 
-    """ debug code
-    dat = request.get_data()
-    with open('debug.json', 'wb') as f:
-        f.write(dat)
-    """
-
     req = request.get_json()
     for i in req:
         m = i['msys']['relay_message']
         c = m['content']
         rxMail = c['email_rfc822'].encode('utf8')
         logger.info('| msg_from={},rcpt_to={},len(email_rfc822)={}'.format(m['msg_from'], m['rcpt_to'], len(rxMail)))
-        read_smime_email(rxMail, logger)
+        read_smime_email(rxMail, cfg, logger)
     return 'OK'
 
 # Start the app
