@@ -3,7 +3,7 @@ from __future__ import print_function
 import email, os, argparse, logging, logging.handlers, dkim, pem, configparser, cryptography
 
 from email.utils import parseaddr
-from OpenSSL import crypto                  # need some legacy functions from here
+from OpenSSL import crypto                  # need legacy cert checking functions from here
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 
@@ -19,8 +19,8 @@ def get_trusted_certs(fname):
         trustedList = pem.parse_file(fname)
         x509_list = []
         for t in trustedList:
-            c2 = cryptography.x509.load_pem_x509_certificate(t.as_bytes(), default_backend())
-            x509_list.append(c2)
+            trusted_cert = cryptography.x509.load_pem_x509_certificate(t.as_bytes(), default_backend())
+            x509_list.append(trusted_cert)
         return x509_list
     else:
         return None
@@ -81,7 +81,7 @@ def verify_certificate_chain(certificate, intermediates, trusted_certs):
     :param trusted_certs: list of cryptography.x509.Certificate
 
     Verify that the certificate is valid, according to the list of intermediates and trusted_certs.
-    Uses legacy crypto.X509 functions as cannot find an equivalent in https://cryptography.io/en/latest/
+    Uses legacy crypto.X509 functions as no current equivalent in https://cryptography.io/en/latest/
 
     See:
     https://gist.github.com/uilianries/0459f59287bd63e49b1b8ef03b30d421#file-cert-check-py
@@ -116,11 +116,16 @@ def verify_certificate_chain(certificate, intermediates, trusted_certs):
 def extract_smime_signature(payload, trusted, logger):
     """
     :param payload: bytes
-    :param trusted: list of
-    :return: list of Cert
+    :param trusted: list of cryptography.x509.Certificate
+    :param logger: logger
+    :return: bytes or None
 
-    Extract public certificates from the PKCS7 binary payload.
-    Returns a list of Cert objects, and a flag indicating if time-ranges are valid
+    Extract public certificates from the PKCS7 binary payload. Logs human-readable info about each cert found.
+    Identifies which are intermediates and which is the sender's public-key cert.
+
+    Verifies against provided list of trusted certs.
+    If valid, returns the PEM-serialized contents of the sender's public-key certificate.
+    If invalid, returns None.
     """
     pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, payload)
     certs = get_certificates(pkcs7)
@@ -155,9 +160,9 @@ def extract_smime_signature(payload, trusted, logger):
 
 def writeCert(pem_bytes, fromFile, logger):
     """
-    Write the received public cert in PEM format to the local file. Return status indicates success.
+    Write the received cert (already serialized in pem format) to file fromFile. Return status indicates success.
 
-    :param pem_bytes: array of bytes
+    :param pem_bytes: bytes
     :param fromFile: str
     :param logger: logger
     :return: bool
@@ -179,7 +184,7 @@ def check_dkim(msg_bytes, fromAddr, logger):
     :param logger: logger
     :return: bool
 
-    Validate the message (passed as a byte sequence, as that's what the dkimpy library wants)
+    Validate the message (passed as a byte sequence, as that's what the dkimpy library wants).
     """
     d = dkim.DKIM(msg_bytes, logger=logger)
     valid_dkim = d.verify()
@@ -195,13 +200,16 @@ def read_smime_email(eml_bytes, cfg, logger):
     :param logger: logger
 
     Reads S/MIME signature from the email, extracts and validates the sender's public key certificate.
-    Mail must also pass DKIM check so that the from address is valid.
+    Expects cfg to supply the name of a ca-bundle.crt type file from the host environment containing trusted certs.
+
+    Mail must also pass DKIM check so that the from address is trustworthy.
     """
+
     # Prepare to check certificate(s) validity by getting list of trusted certs from host environment
     trusted_certs_file = cfg.get('trusted-certs', '')
     trusted = get_trusted_certs(trusted_certs_file)
     if trusted == None:
-        logger.error('Problem loading trusted certificate bundle from file {} - stopping. Check webapp.ini.'.format(trusted_certs_file))
+        logger.error('Problem loading trusted certificate bundle from file {} - stopping. Check .ini file.'.format(trusted_certs_file))
     else:
         eml = email.message_from_bytes(eml_bytes)
         _, fromAddr = parseaddr(eml.get('From'))
