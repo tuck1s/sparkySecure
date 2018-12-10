@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 pyopenssl = "*"
 cryptography = "*"
-"asn1crypto" = "*"
+asn1crypto = "*"
 smime = {git = "https://github.com/balena/python-smime.git"}
 sparkpost = {git = "https://github.com/sparkpost/python-sparkpost.git"}
 pytest = "*"
@@ -14,6 +14,7 @@ dnspython = "*"
 dkimpy = "*"
 gunicorn = "*"
 flask = "*"
+pem = "*"
 
 [dev-packages]
 pytest = "*"
