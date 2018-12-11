@@ -36,10 +36,11 @@ def createLogger(logfile):
     logfileBackupCount = 10                     # default to 10 files
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    fh = logging.handlers.TimedRotatingFileHandler(logfile, when='midnight', backupCount=logfileBackupCount)
-    formatter = logging.Formatter('%(asctime)s,%(name)s,%(levelname)s,%(message)s')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    if not logger.handlers:                     # avoid adding more than one handler, as it causes duplicate lines in output
+        fh = logging.handlers.TimedRotatingFileHandler(logfile, when='midnight', backupCount=logfileBackupCount)
+        formatter = logging.Formatter('%(asctime)s,%(name)s,%(levelname)s,%(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
     return logger
 
 
@@ -189,7 +190,7 @@ def check_dkim(msg_bytes, fromAddr, logger):
     d = dkim.DKIM(msg_bytes, logger=logger)
     valid_dkim = d.verify()
     _, fromDomain = fromAddr.split('@')
-    matching_from = d.domain.decode('utf8') == fromDomain
+    matching_from = (d.domain != None) and (d.domain.decode('utf8') == fromDomain)
     return valid_dkim and matching_from
 
 

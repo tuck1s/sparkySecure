@@ -16,8 +16,10 @@ before_script:
   - export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 script:
+  # basic tests - command line tools are installed and give help/usage
   - ./sparkpostSMIME.py -h
   - ./mimeshow.py -h
+  - ./readSMIMEsig.py -h
   # internal test cases. Invoke pytest where it can find the cert files
   - cd tests; pytest
 
