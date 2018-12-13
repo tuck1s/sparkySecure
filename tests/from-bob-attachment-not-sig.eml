@@ -1,0 +1,42 @@
+Delivered-To: steve.tuck@sparkpost.com
+Return-Path: <bob.lumreeker@gmail.com>
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20161025;
+        h=to:from:subject:message-id:date:user-agent:mime-version
+         :content-language;
+        bh=9yu/etUi8P+1cMriMiupRYKwKhvZbtehIwzJ5I/g1BY=;
+        b=pfrFniuOGXTMdoDfxYEd+nsRjYhzP45+ZB+6eiJVIsxs7fFKROaJCOTk++Z5puHhoz
+         g0y0htwCXVUEgFLBT5pSEyijhQUHD5DDpkP+CCj7Cc8n84oZAiI9OZp4vi61I/7aG55k
+         5ekEtD8BihMoi5pSAgLmUR8mCB2kp4yp+aSgRzDshKwkdcZtaPloXXUae+lUCKr2Ao55
+         66yLqWjL0ij5qbr8WaEvp3sTCDf+MXsSLQOx/PrJPIJ79hNf4UtZwP1WgbaYo/Ap82wJ
+         CDXQMrqtCmnxsclfH71PX25/gPX3BwSawmlGx3r7Faf6eAiUbu6u/UkBA2aSIXL6xKz6
+         9ZjA==
+To: steve.tuck@sparkpost.com
+From: Bob Lumreeker <bob.lumreeker@gmail.com>
+Subject: An attachment that looks like a signature but isn't
+Message-ID: <6a12afea-d66e-7fa4-d4e3-a7b54dcc0fce@gmail.com>
+Date: Thu, 13 Dec 2018 14:15:26 +0000
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:60.0)
+ Gecko/20100101 Thunderbird/60.3.3
+MIME-Version: 1.0
+Content-Type: multipart/mixed;
+ boundary="------------020DE45723D01BD7D7CF95B4"
+Content-Language: en-GB
+
+This is a multi-part message in MIME format.
+--------------020DE45723D01BD7D7CF95B4
+Content-Type: text/plain; charset=utf-8; format=flowed
+Content-Transfer-Encoding: 7bit
+
+
+
+--------------020DE45723D01BD7D7CF95B4
+Content-Type: text/plain; charset=UTF-8; x-mac-type="0"; x-mac-creator="0";
+ name="smime.p7s"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename="smime.p7s"
+
+SXQgaXMgb25seSB0aGUgaGFpcnMgb24gYSBnb29zZWJlcnJ5IHRoYXQgcHJldmVudCBpdCBm
+cm9tIGJlaW5nIGEgZ3JhcGUu
+--------------020DE45723D01BD7D7CF95B4--

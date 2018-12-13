@@ -75,7 +75,7 @@ def get_certificates(p7_data):
     return pycerts
 
 
-def verify_certificate_chain(certificate, intermediates, trusted_certs):
+def verify_certificate_chain(certificate, intermediates, trusted_certs, logger):
     """
     :param certificate: cryptography.x509.Certificate
     :param intermediates: list of cryptography.x509.Certificate
@@ -97,6 +97,7 @@ def verify_certificate_chain(certificate, intermediates, trusted_certs):
 
         # Create a certificate context using the store, to check any intermediate certificates
         for i in intermediates:
+            logger.info('| verifying intermediate certificates')
             i_X509 = crypto.X509.from_cryptography(i)
             store_ctx = crypto.X509StoreContext(store, i_X509)
             store_ctx.verify_certificate()
@@ -104,13 +105,15 @@ def verify_certificate_chain(certificate, intermediates, trusted_certs):
             store.add_cert(i_X509)
 
         # Validate certificate against (trusted + intermediate)
+        logger.info('| intermediates passed, verifying user certificate')
         store_ctx = crypto.X509StoreContext(store, crypto.X509.from_cryptography(certificate))
         # Verify the certificate, returns None if it can validate the certificate
         store_ctx.verify_certificate()
+        logger.info('| user certificate passed')
         return True
 
     except crypto.X509StoreContextError as e:
-        print(e)
+        logger.warning(e)
         return False
 
 
@@ -152,7 +155,7 @@ def extract_smime_signature(payload, trusted, logger):
         else:
             intermediates.append(c)
 
-    if verify_certificate_chain(cert, intermediates, trusted):
+    if verify_certificate_chain(cert, intermediates, trusted, logger):
         pem_bytes = cert.public_bytes(serialization.Encoding.PEM)
         return pem_bytes
     else:
