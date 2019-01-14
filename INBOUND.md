@@ -37,7 +37,7 @@ that you trust, rather than from an unknown source.
 
 ## Starting
 
-A sample shell script for starting the service is provided in [starting-gun.sh]. Modify the port numbers etc. to suit your environment.
+A sample shell script for starting the service is provided in [starting_gun.sh](starting_gun.sh). Modify the port numbers etc. to suit your environment.
 The file includes some commentary on the parameters.
 
 ## Error handling
@@ -88,7 +88,7 @@ refer to your own host's trusted bundle instead.
 
 # webapp.ini
 
-The [webapp.ini] file is used to configure the application behaviour.
+The [webapp.ini](webapp.ini) file is used to configure the application behaviour.
 
 ## Certificate file output
 
@@ -108,7 +108,7 @@ MIIFOTCCBCGgAwIBAgIQSP9rjNDl9bQK5T+HiKtsRDANBgkqhkiG9w0BAQsFADCB
 
 ### Viewing received certificate file content
 
-This can be done easily using `openssl`:
+This can be done using `openssl`:
 
 ```
 openssl x509 -inform PEM -in bob.lumreeker\@gmail.com.crt -text -noout
