@@ -50,7 +50,10 @@ def handle_inbound_relay():
     cfg = config['webapp']
 
     expected_token = cfg.get('x-messagesystems-webhook-token')
-    got_token = request.headers['X-MessageSystems-Webhook-Token']
+    try:
+        got_token = request.headers.get('X-MessageSystems-Webhook-Token')
+    except KeyError:
+        got_token = None
     if expected_token != None:
         if got_token != expected_token:
             logger.info('| Invalid X-MessageSystems-Webhook-Token in request headers: {}, must match {}'.format(got_token, expected_token))

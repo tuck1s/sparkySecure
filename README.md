@@ -132,6 +132,12 @@ Content-Transfer-Encoding base64
 Content-Disposition attachment; filename=smime.p7m
 ```
 
+# webapp/readSMIMEsig
+
+These tools handle inbound messages, extracting sender email certificates - desribed separately
+[here](INBOUND.md).
+
+
 # Installing
 
 Here's a basic installation sequence, starting from fresh Amazon Linux, using the dependencies
