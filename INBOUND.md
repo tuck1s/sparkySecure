@@ -70,10 +70,19 @@ If the http(s) request is valid but the content is invalid, you will see a respo
 }
 ```
 
+# DKIM validation
+
+Inbound mail must pass DKIM checks. This is an anti-spoofing safety measure to prevent bad actors
+injecting seemingly valid-looking certificates for domains they do not own. For example, personal mail
+sent via Gmail should always have valid DKIM signature. These checks could be bypassed if necessary.
+
 # Certificate validation
 
 User certificates (and any intermediates found) are extracted from the inbound mail and
-validated against the certificate bundle file / location given in the `webapp.ini` file.
+validated against the trusted certificate bundle file given in `webapp.ini`.
+
+A valid bundle is necessary to operate the tools. A trusted bundle (from a recent CentOS host) is included in the project, but you may wish to
+refer to your own host's trusted bundle instead.
 
 # `webapp.ini`
 
@@ -128,3 +137,9 @@ Email replies to sender (e.g. passed - "thanks for your certificate", failed - "
 similar reasons, but could easily be added.
 
 Some text responses in the logfile are checked for specifically, in the automated test cases run by `pytest`, to determine test pass/fail.
+
+The trusted certificates (approx 150 in the supplied file from CentOS) are loaded from scratch for each request.
+This makes command-line invocation as similar as possible to web app invocation, but could probably be optimized.
+
+Where possible, the newer `cryptography` objects and methods have been used. Getting the PKCS#7 data, extracting the certs from that, and verifying
+a stack of certs still seems to require the lower-level `OpenSSL.crypto` libraries.
