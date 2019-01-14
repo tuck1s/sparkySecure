@@ -152,8 +152,6 @@ MIME content type `multipart/signed` with protocol `application/pkcs7-signature`
 
 Specifically, enveloped messages and encrypted messages `EnvelopedData` or `SignedData` are not currently supported.
 
-Certificates are stored as plain .crt files.
-
 As long as the basic JSON structure is OK, the web app will return a 200OK response. This is intentional, as it limits the external disclosure
 of information on what this code considers a valid certificate.
 
@@ -165,5 +163,5 @@ Some text responses in the logfile are checked for specifically, in the automate
 The trusted certificates (approx 150 in the supplied file from CentOS) are loaded from scratch for each request.
 This makes command-line invocation as similar as possible to web app invocation, but could probably be optimized.
 
-Where possible, the newer `cryptography` objects and methods have been used. Getting the PKCS#7 data, extracting the certs from that, and verifying
-a stack of certs still seems to require the lower-level `OpenSSL.crypto` libraries.
+Where possible, the newer [`cryptography`](https://cryptography.io/en/latest/) objects and methods have been used. Getting the PKCS#7 data, extracting the certs from that, and verifying
+a stack of certs still seems to require the lower-level [`OpenSSL.crypto`](https://pyopenssl.org/en/stable/api/crypto.html) libraries.
