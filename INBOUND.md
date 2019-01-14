@@ -1,12 +1,12 @@
 # Inbound email certificate handling
 
-The following tools are described here:
+Comprises the following tools:
 - `readSMIMEsig.py` - read an email and parse out intermediate and user certificates
 - `webapp.py` - simple Flask-compabible web application for use with SparkPost Inbound Relay Webhooks
 - `webapp.ini` - configuration file for the above
 - Logfile formats created by these tools
 
-# `readSMIMEsig.py`
+# readSMIMEsig.py
 
 Can be invoked from the command-line to parse the specified mail file. This can be useful during
 testing. When used as part of the web application (see following) the top-level worker function in this file `read_smime_email` is called directly.
@@ -27,12 +27,12 @@ optional arguments:
 
 ```
 
-# `webapp.py`
+# webapp.py
 
 This web application file is designed to run under Flask / Gunicorn. It comprises a
 basic SparkPost [Inbound Relay Webhooks](https://www.sparkpost.com/docs/tech-resources/inbound-email-relay-webhook/) parser.
 
-Optional, highly recommended: you can specify a required `X-MessageSystems-Webhook-Token` value in `webapp.ini`. This provides a means to ensure the inputs to the web application are coming from a source
+Optional, but recommended: you can specify a required `X-MessageSystems-Webhook-Token` value in `webapp.ini`. This provides a means to ensure the inputs to the web application are coming from a source
 that you trust, rather than from an unknown source.
 
 ## Starting
@@ -72,9 +72,10 @@ If the http(s) request is valid but the content is invalid, you will see a respo
 
 # DKIM validation
 
-Inbound mail must pass DKIM checks. This is an anti-spoofing safety measure to prevent bad actors
-injecting seemingly valid-looking certificates for domains they do not own. For example, personal mail
-sent via Gmail should always have valid DKIM signature. These checks could be bypassed if necessary.
+DKIM checks are applied to the inbound mail. Specifically, the DKIM signature must be valid, and the signing domain `d=` must be identical to the `From:` domain.
+This is an anti-spoofing safety measure, intended to prevent bad actors injecting seemingly valid-looking certificates.
+The premise here is that any competent personal mailbox provider should have applied a valid DKIM signature to the mail sent to this application.
+You could bypass DKIM checks if necessary, but you are then solely relying on the certificate validity checks.
 
 # Certificate validation
 
