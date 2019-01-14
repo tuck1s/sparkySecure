@@ -37,7 +37,7 @@ that you trust, rather than from an unknown source.
 
 ## Starting
 
-A sample shell script for starting the service is provided in [`starting-gun.sh`]. Modify the port numbers etc. to suit your environment.
+A sample shell script for starting the service is provided in [starting-gun.sh]. Modify the port numbers etc. to suit your environment.
 The file includes some commentary on the parameters.
 
 ## Error handling
@@ -74,7 +74,8 @@ If the http(s) request is valid but the content is invalid, you will see a respo
 
 DKIM checks are applied to the inbound mail. Specifically, the DKIM signature must be valid, and the signing domain `d=` must be identical to the `From:` domain.
 This is an anti-spoofing safety measure, intended to prevent bad actors injecting seemingly valid-looking certificates.
-The premise here is that any competent personal mailbox provider should have applied a valid DKIM signature to the mail sent to this application.
+
+The premise is that any competent personal mailbox provider should have applied a valid DKIM signature to the mail sent to this application.
 You could bypass DKIM checks if necessary, but you are then solely relying on the certificate validity checks.
 
 # Certificate validation
@@ -85,9 +86,9 @@ validated against the trusted certificate bundle file given in `webapp.ini`.
 A valid bundle is necessary to operate the tools. A trusted bundle (from a recent CentOS host) is included in the project, but you may wish to
 refer to your own host's trusted bundle instead.
 
-# `webapp.ini`
+# webapp.ini
 
-The [`webapp.ini`] file is used to configure the application behaviour.
+The [webapp.ini] file is used to configure the application behaviour.
 
 ## Certificate file output
 
