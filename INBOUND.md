@@ -88,6 +88,30 @@ refer to your own host's trusted bundle instead.
 
 The [`webapp.ini`] file is used to configure the application behaviour.
 
+## Certificate file output
+
+The tool writes certificates into files named with the
+full email address of the sender (e.g. `sender@example.com.crt`) in
+[Privacy-Enhanced Mail (PEM)](https://en.wikipedia.org/wiki/Privacy-Enhanced_Mail) format.
+File contents are base64 data comprising just the single user certificate:
+
+bob.lumreeker\@gmail.com.crt:
+```
+-----BEGIN CERTIFICATE-----
+MIIFOTCCBCGgAwIBAgIQSP9rjNDl9bQK5T+HiKtsRDANBgkqhkiG9w0BAQsFADCB
+:
+:
+-----END CERTIFICATE-----
+```
+
+### Viewing received certificate file content
+
+This can be done easily using `openssl`:
+
+```
+openssl x509 -inform PEM -in bob.lumreeker\@gmail.com.crt -text -noout
+```
+
 ## Application logfile output
 
 As well as the generic Gunicorn access logfile, the tools generate fairly verbose application-specific information:
