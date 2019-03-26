@@ -195,7 +195,7 @@ def buildSMIMEemail(msg, encrypt=False, sign=False, r_cert=None, s_pubcert=None,
     return msg2
 
 
-def sendSparkPost(sp, msg):
+def sendSparkPost(sp, msg, track):
     """
     Inject into a SparkPost endpoint, given a message object.
 
@@ -209,9 +209,9 @@ def sendSparkPost(sp, msg):
     # Also set "transactional" flag to suppress the List-Unsubscribe header.
     sendObj = {
         'campaign': 'sparkpost-SMIME',
-        'track_opens': False,
-        'track_clicks': False,
-        'transactional': True,
+        'track_opens': track,
+        'track_clicks': track,
+        'transactional': not track,
         'email_rfc822': msg.as_string(),
         'recipients': allRecips
     }
@@ -303,15 +303,19 @@ if __name__ == "__main__":
     output = parser.add_mutually_exclusive_group(required=False)
     output.add_argument('--send_api', action='store_true', help='Send via SparkPost API, using env var SPARKPOST_API_KEY and optional SPARKPOST_HOST.')
     output.add_argument('--send_smtp', action='store_true', help='Send via SMTP, using env vars SMTP_HOST, SMTP_PORT (optional, defaults to 25), SMTP_USER, SMTP_PASSWORD.')
+    parser.add_argument('--track', action='store_true', help='Enable API engagement tracking (not allowed when signing; otherwise message will be marked as corrupt)')
     args = parser.parse_args()
 
+    if args.sign and args.track:
+        print('Invalid combination of arguments - cannot track signed messages')
+        exit(1)
     msgOut = do_smime(args)
     if args.send_api:
         cfg = getConfig(api=True)
         sp = SparkPost(api_key=cfg['sparkpost_api_key'], base_uri=cfg['sparkpost_host'])
         print('Opened connection to', sp.base_uri)
-        print('Sending {}\tFrom: {}\tTo: {} '.format(args.emlfile, msgOut.get('From'), msgOut.get('To')))
-        sendSparkPost(sp, msgOut)
+        print('Sending {}\tFrom: {}\tTo: {}\tTracking: {}'.format(args.emlfile, msgOut.get('From'), msgOut.get('To'), args.track))
+        sendSparkPost(sp, msgOut, args.track)
 
     elif args.send_smtp:
         cfg = getConfig(api=False)
