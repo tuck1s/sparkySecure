@@ -2,9 +2,11 @@
 from __future__ import print_function
 import email, os, time, argparse, smime, base64, sys
 from sparkpost import SparkPost
-from sparkpost.exceptions import SparkPostAPIException
+import requests
 from email.utils import parseaddr
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from OpenSSL import crypto
 from copy import deepcopy
 from smtplib import SMTP, SMTPException
@@ -65,15 +67,19 @@ def gatherAllRecips(msg):
 
 
 PKCS7_NOSIGS = 0x4  # defined in pkcs7.h
-def create_embedded_pkcs7_signature(data, cert, key):
+PKCS7_DETACHED=0x40
+def create_embedded_pkcs7_signature(data, cert, key, pkcs7_option):
     """
-    Creates an embedded ("nodetached") pkcs7 signature.
-    This is equivalent to the output of `openssl smime -sign -signer cert -inkey key -outform DER -nodetach < data`
+    Creates an pkcs7 signature.
+    For PKCS7_OPT == PKCS7_NOSIGS: equivalent to the output of `openssl smime -sign -signer cert -inkey key -outform DER -nodetach < data`
     Thanks to https://stackoverflow.com/a/47098879/8545455
+
+    For PKCS7_OPT == PKCS7_DETACHED: equivalent to the output of `openssl smime -sign -signer cert -inkey key -outform DER < data`
 
     :type data: bytes
     :type cert: str
     :type key: bytes
+    :type pkcs7_option: int
     """
     assert isinstance(data, bytes)
     assert isinstance(cert, str)
@@ -85,40 +91,67 @@ def create_embedded_pkcs7_signature(data, cert, key):
         raise ValueError('Certificates files are invalid') from e
 
     bio_in = crypto._new_mem_buf(data)
-    pkcs7 = crypto._lib.PKCS7_sign(signcert._x509, pkey._pkey, crypto._ffi.NULL, bio_in, PKCS7_NOSIGS)
+    pkcs7 = crypto._lib.PKCS7_sign(signcert._x509, pkey._pkey, crypto._ffi.NULL, bio_in, pkcs7_option)
     bio_out = crypto._new_mem_buf()
     crypto._lib.i2d_PKCS7_bio(bio_out, pkcs7)
     signed_data = crypto._bio_to_string(bio_out)
     return signed_data
 
 
-def signEmailFrom(msg, pubcert, privkey):
+def signEmailFrom(msg, pubcert, privkey, sign_detached=False):
     """ Signs the provided email message object with the from address cert (.crt) & private key (.pem) from current dir.
     :type msg: email.message.Message
     :type pubcert: str
     :type privkey: str
+    :type sign_detached: bool
 
-    Returns signed message object, in format
+    Default - Returns signed message object, in format
         Content-Type: application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"
         Content-Disposition: attachment; filename="smime.p7m"
         Content-Transfer-Encoding: base64
     See RFC5751 section 3.4
     The reason for choosing this format, rather than multipart/signed, is that it prevents the delivery service
     from applying open/link tracking or other manipulations on the body.
+
+    sign_detached == true:, Returns signed message object, in format
+        Content-Type: multipart/signed; protocol="application/x-pkcs7-signature";
+
+    The reason for choosing this format is for transparency on mail clients that do not understand S/MIME.
     """
     assert isinstance(msg, email.message.Message)
     assert isinstance(pubcert, str)
     assert isinstance(privkey, str)
-    rawMsg = msg.as_bytes()
-    sgn = create_embedded_pkcs7_signature(rawMsg, pubcert, privkey)
-    msg.set_payload(base64.encodebytes(sgn))
-    hdrList = {
-        'Content-Type': 'application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"',
-        'Content-Transfer-Encoding': 'base64',
-        'Content-Disposition': 'attachment; filename="smime.p7m"'
-    }
-    copyHeaders(hdrList, msg)
-    return msg
+    assert isinstance(sign_detached, bool)
+    if sign_detached:
+        # Need to fix up the header order and formatting here
+        rawMsg = msg.as_bytes()
+        sgn = create_embedded_pkcs7_signature(rawMsg, pubcert, privkey, PKCS7_DETACHED)
+        # Wrap message with multipart/signed header
+        msg2 = MIMEMultipart() # this makes a new boundary
+        bound = msg2.get_boundary() # keep for later as we have to rewrite the header
+        msg2.set_default_type('multipart/signed')
+        copyHeaders(msg, msg2)
+        del msg2['Content-Language'] # These don't apply to multipart/signed
+        del msg2['Content-Transfer-Encoding']
+        msg2.attach(msg)
+        sgn_part = MIMEApplication(sgn, 'x-pkcs7-signature; name="smime.p7s"', _encoder=email.encoders.encode_base64)
+        sgn_part.add_header('Content-Disposition', 'attachment; filename="smime.p7s"')
+        msg2.attach(sgn_part)
+        # Fix up Content-Type headers, as default class methods don't allow passing in protocol etc.
+        msg2.replace_header('Content-Type', 'multipart/signed; protocol="application/x-pkcs7-signature"; micalg="sha1"; boundary="{}"'.format(bound))
+        return msg2
+
+    else:
+        rawMsg = msg.as_bytes()
+        sgn = create_embedded_pkcs7_signature(rawMsg, pubcert, privkey, PKCS7_NOSIGS)
+        msg.set_payload(base64.encodebytes(sgn))
+        hdrList = {
+            'Content-Type': 'application/x-pkcs7-mime; smime-type=signed-data; name="smime.p7m"',
+            'Content-Transfer-Encoding': 'base64',
+            'Content-Disposition': 'attachment; filename="smime.p7m"'
+        }
+        copyHeaders(hdrList, msg)
+        return msg
 
 
 def fixTextPlainParts(msg):
@@ -168,9 +201,9 @@ def copyPayload(m1, m2):
     m2._payload = m1._payload
 
 
-def buildSMIMEemail(msg, encrypt=False, sign=False, r_cert=None, s_pubcert=None, s_privkey=None):
+def buildSMIMEemail(msg, encrypt=False, sign=False, sign_detached=False, r_cert=None, s_pubcert=None, s_privkey=None):
     """
-    Build SMIME email, given a message file in RFC822 .eml format. Options to encrypt and sign.
+    Build SMIME email, given a message file in RFC822 .eml format. Options to encrypt and sign (and sign_detached).
     For encryption, requires recipient's public key cert.
     For signing, requires sender's public key cert and private key.
 
@@ -184,8 +217,8 @@ def buildSMIMEemail(msg, encrypt=False, sign=False, r_cert=None, s_pubcert=None,
     msg2.__delitem__('Bcc')             # always remove these from the delivered message
 
     # Sign the message, replacing it in-situ
-    if sign:
-        msg2 = signEmailFrom(msg2, s_pubcert, s_privkey)
+    if sign or sign_detached:
+        msg2 = signEmailFrom(msg2, s_pubcert, s_privkey, sign_detached = sign_detached)
         if msg2==None:
             return None                 # failure, exit early
     # Encrypt the message, replacing it in-situ
@@ -207,26 +240,41 @@ def sendSparkPost(sp, msg, track):
     allRecips = gatherAllRecips(msg)
     # Prevent SparkPost from wrapping links and inserting tracking pixels, if signed or encrypted.
     # Also set "transactional" flag to suppress the List-Unsubscribe header.
+    # Now uses requests library rather than python-sparkpost library, to get access to all API features.
     sendObj = {
-        'campaign': 'sparkpost-SMIME',
-        'track_opens': track,
-        'track_clicks': track,
-        'transactional': not track,
-        'email_rfc822': msg.as_string(),
+        'content': {
+            'email_rfc822': msg.as_string(),
+        },
+        'campaign_id': 'sparkpost-SMIME',
+        'options': {
+            'open_tracking': track,
+            'click_tracking': track,
+            'transactional': not track,
+        },
         'recipients': allRecips
     }
     # send message via SparkPost
     startT = time.time()
     try:
-        res = sp.transmissions.send(**sendObj)                  # Unpack for the call
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': sp.get_api_key()
+        }
+        rawRes = requests.post(sp.transmissions.uri, json=sendObj, headers=headers)
         endT = time.time()
+        if rawRes.status_code != 200:
+            print(rawRes.text)
+            return 0, rawRes.text
+
+        resJSON = rawRes.json()
+        res = resJSON.get('results')
         if res['total_accepted_recipients'] != len(sendObj['recipients']):
             print(res)
         else:
             print('OK - in', round(endT - startT, 3), 'seconds')
         return res['total_accepted_recipients'], ''
-    except SparkPostAPIException as err:
-        errMsg = 'error code ' + str(err.status) + ' : ' + str(err.errors)
+    except Exception as err:
+        errMsg = 'error code ' + str(err)
         print(errMsg)
         return 0, errMsg
 
@@ -275,13 +323,13 @@ def do_smime(args):
     if os.path.isfile(args.emlfile):
         with open(args.emlfile) as fp:
             eml = email.message_from_file(fp)
-            r_cert, s_pubcert, s_privkey, error = getKeysFor(eml, encrypt=args.encrypt, sign=args.sign)
+            r_cert, s_pubcert, s_privkey, error = getKeysFor(eml, encrypt=args.encrypt, sign=(args.sign or args.sign_detached))
             if error:
                 print(error, '- stopping')
                 exit(1)
             else:
-                msgOut = buildSMIMEemail(eml, encrypt=args.encrypt, sign=args.sign, r_cert=r_cert, s_pubcert=s_pubcert,
-                                         s_privkey=s_privkey)
+                msgOut = buildSMIMEemail(eml, encrypt=args.encrypt, sign=args.sign, sign_detached=args.sign_detached,
+                    r_cert=r_cert, s_pubcert=s_pubcert, s_privkey=s_privkey)
                 if msgOut == None:
                     print('Error building S/MIME file - stopping')
                     exit(1)
@@ -299,14 +347,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Send an email file via SparkPost with optional S/MIME encryption and signing.')
     parser.add_argument('emlfile', type=str, help='filename to read (in RFC822 format)')
     parser.add_argument('--encrypt', action='store_true', help='Encrypt with a recipient certificate containing public key. Requires file.crt where file matches To: address.')
-    parser.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
+
+    p2 = parser.add_mutually_exclusive_group(required=False)
+    p2.add_argument('--sign', action='store_true', help='Sign with a sender key. Requires file.crt containing public key, and file.pem containing private key, where file matches From: address.')
+    p2.add_argument('--sign_detached', action='store_true', help='Sign with a sender key, but using ')
+
     output = parser.add_mutually_exclusive_group(required=False)
     output.add_argument('--send_api', action='store_true', help='Send via SparkPost API, using env var SPARKPOST_API_KEY and optional SPARKPOST_HOST.')
     output.add_argument('--send_smtp', action='store_true', help='Send via SMTP, using env vars SMTP_HOST, SMTP_PORT (optional, defaults to 25), SMTP_USER, SMTP_PASSWORD.')
+
     parser.add_argument('--track', action='store_true', help='Enable API engagement tracking (not allowed when signing; otherwise message will be marked as corrupt)')
+
     args = parser.parse_args()
 
-    if args.sign and args.track:
+    if (args.sign or args.sign_detached) and args.track:
         print('Invalid combination of arguments - cannot track signed messages')
         exit(1)
     msgOut = do_smime(args)
@@ -318,6 +372,7 @@ if __name__ == "__main__":
         sendSparkPost(sp, msgOut, args.track)
 
     elif args.send_smtp:
+        #FIXME: SMTP code works OK for basic MTAs, but needs headers added to turn off tracking etc. for SparkPost
         cfg = getConfig(api=False)
         try:
             startT = time.time()
